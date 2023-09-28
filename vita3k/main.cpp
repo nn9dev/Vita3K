@@ -23,6 +23,7 @@
 #include <display/state.h>
 #include <emuenv/state.h>
 #include <gui/functions.h>
+#include <gui-qt/functions.h>
 #include <gui/state.h>
 #include <io/state.h>
 #include <kernel/state.h>
@@ -84,6 +85,7 @@ static void run_execv(char *argv[], EmuEnvState &emuenv) {
 };
 
 int main(int argc, char *argv[]) {
+    gui_qt::test();
     ZoneScoped; // Tracy - Track main function scope
     Root root_paths;
     root_paths.set_base_path(string_utils::utf_to_wide(SDL_GetBasePath()));
