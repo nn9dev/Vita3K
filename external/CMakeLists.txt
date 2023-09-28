@@ -21,7 +21,7 @@ function(check_submodules_present)
 		if(RES_LEN EQUAL 0)
 			# directory is empty
 			message(FATAL_ERROR "Submodule ${module} is empty. "
-				"Please run: git submodule update --init --recursive")
+					"Please run: git submodule update --init --recursive")
 		endif()
 	endforeach()
 endfunction()
@@ -84,7 +84,7 @@ set_property(TARGET FAT16 PROPERTY FOLDER externals)
 add_library(imgui STATIC imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp imgui/misc/cpp/imgui_stdlib.cpp)
 target_compile_definitions(imgui PRIVATE IMGUI_DISABLE_DEMO_WINDOWS)
 target_include_directories(imgui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/imgui"
-	"${CMAKE_CURRENT_SOURCE_DIR}/imgui_club/imgui_memory_editor/")
+		"${CMAKE_CURRENT_SOURCE_DIR}/imgui_club/imgui_memory_editor/")
 set_property(TARGET imgui PROPERTY FOLDER externals)
 
 add_library(miniz STATIC miniz/miniz.c miniz/miniz.h)
@@ -156,7 +156,7 @@ function(download_bundled_external remote_path lib_name prefix_var)
 
 		#message(FATAL_ERROR ${PROJECT_SOURCE_DIR})
 		#execute_process(COMMAND ${CMAKE_COMMAND} -E tar xf "${CMAKE_BINARY_DIR}/external/${lib_name}${package_extension}"
-				#directory "${PROJECT_SOURCE_DIR}/external")
+		#directory "${PROJECT_SOURCE_DIR}/external")
 
 		execute_process(COMMAND ${CMAKE_COMMAND} -E tar xf "${CMAKE_BINARY_DIR}/external/${lib_name}${package_extension}"
 				WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external")
@@ -167,7 +167,7 @@ endfunction()
 
 function(set_qt_components)
 	# Best practice is to ask for all components at once, so they are from the same version
-	set(QT_COMPONENTS Core Widgets Concurrent PARENT_SCOPE)
+	set(QT_COMPONENTS Core Widgets Concurrent Gui PARENT_SCOPE)
 	if (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
 		list(APPEND QT_COMPONENTS DBus)
 	endif()
@@ -296,7 +296,7 @@ if(USE_QT_FRONTEND)
 			download_bundled_external("qt/" ${QT_BUILD} QT_PREFIX)
 		endif()
 
-		set(QT_PREFIX_HINT "${QT_PREFIX}" PARENT_SCOPE)
+		set(QT_PREFIX_HINT HINTS "${QT_PREFIX}")
 
 		set(QT_NO_CMAKE_SYSTEM_PATH "NO_CMAKE_SYSTEM_PATH")
 		# Binary package for Qt5 has Qt Multimedia
@@ -306,12 +306,7 @@ if(USE_QT_FRONTEND)
 	set_qt_components()
 	find_package(Qt5 ${QT5_VERSION} COMPONENTS ${QT_COMPONENTS} ${QT_PREFIX_HINT} ${QT_NO_CMAKE_SYSTEM_PATH})
 	include_directories(${Qt5_INCLUDE_DIR})
-	message(${Qt5_FOUND})
-	get_cmake_property(_variableNames VARIABLES)
-	list (SORT _variableNames)
-	foreach (_variableName ${_variableNames})
-		message(STATUS "${_variableName}=${${_variableName}}")
-	endforeach()
+	set(QT_PREFIX_INCACHE ${QT_PREFIX} CACHE STRING "Qt prefix for availability across files" FORCE)
 endif()
 
 # Cubeb setup, from https://github.com/RPCS3/rpcs3/blob/master/3rdparty/cubeb/CMakeLists.txt
@@ -329,13 +324,13 @@ set_property(TARGET speex PROPERTY FOLDER externals)
 
 if (ARCHITECTURE STREQUAL "arm64")
 	target_compile_definitions(speex PUBLIC
-		#_USE_NEON
-	)
+			#_USE_NEON
+			)
 elseif (ARCHITECTURE STREQUAL "x86_64")
 	target_compile_definitions(speex PUBLIC
-		_USE_SSE
-		_USE_SSE2
-	)
+			_USE_SSE
+			_USE_SSE2
+			)
 endif ()
 
 if(WIN32)
@@ -381,7 +376,7 @@ if(USE_DISCORD_RICH_PRESENCE)
 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/discord_game_sdk.zip")
 		message(STATUS "Downloading discord gamesdk...")
 		file(DOWNLOAD https://dl-game-sdk.discordapp.net/latest/discord_game_sdk.zip
-			"${CMAKE_BINARY_DIR}/external/discord_game_sdk.zip" SHOW_PROGRESS)
+				"${CMAKE_BINARY_DIR}/external/discord_game_sdk.zip" SHOW_PROGRESS)
 	endif()
 endif()
 
@@ -389,26 +384,26 @@ if(USE_DISCORD_RICH_PRESENCE)
 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/discord_game_sdk")
 		file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/external/discord_game_sdk")
 		execute_process(COMMAND ${CMAKE_COMMAND} -E tar xf "${CMAKE_BINARY_DIR}/external/discord_game_sdk.zip"
-			WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external/discord_game_sdk")
+				WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external/discord_game_sdk")
 		file(RENAME "${CMAKE_BINARY_DIR}/external/discord_game_sdk/lib/x86_64/discord_game_sdk.so"
-			"${CMAKE_BINARY_DIR}/external/discord_game_sdk/lib/x86_64/libdiscord_game_sdk.so")
+				"${CMAKE_BINARY_DIR}/external/discord_game_sdk/lib/x86_64/libdiscord_game_sdk.so")
 	endif()
 
 	add_library(discord-rpc STATIC
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/achievement_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/activity_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/application_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/core.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/image_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/lobby_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/network_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/overlay_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/relationship_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/storage_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/store_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/types.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/user_manager.cpp
-		${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/voice_manager.cpp)
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/achievement_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/activity_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/application_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/core.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/image_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/lobby_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/network_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/overlay_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/relationship_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/storage_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/store_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/types.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/user_manager.cpp
+			${CMAKE_BINARY_DIR}/external/discord_game_sdk/cpp/voice_manager.cpp)
 
 	if(APPLE)
 		if(ARCHITECTURE STREQUAL "x86_64")
@@ -467,8 +462,8 @@ endif()
 
 add_library(vma INTERFACE)
 target_include_directories(vma INTERFACE
-	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator-Hpp/include"
-	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator-Hpp/VulkanMemoryAllocator/include")
+		"${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator-Hpp/include"
+		"${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator-Hpp/VulkanMemoryAllocator/include")
 
 add_subdirectory(ffmpeg)
 
@@ -478,16 +473,16 @@ set_property(TARGET libzRIF PROPERTY FOLDER externals)
 set_property(TARGET libb64 PROPERTY FOLDER externals)
 
 if(APPLE)
- 	execute_process(
- 		COMMAND brew --prefix openssl
- 		RESULT_VARIABLE BREW_RESULT
- 		OUTPUT_VARIABLE BREW_OPENSSL
- 		OUTPUT_STRIP_TRAILING_WHITESPACE
- 	)
- 	if(BREW_RESULT EQUAL 0)
- 		set(OPENSSL_ROOT_DIR "${BREW_OPENSSL}")
+	execute_process(
+			COMMAND brew --prefix openssl
+			RESULT_VARIABLE BREW_RESULT
+			OUTPUT_VARIABLE BREW_OPENSSL
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+	)
+	if(BREW_RESULT EQUAL 0)
+		set(OPENSSL_ROOT_DIR "${BREW_OPENSSL}")
 		set(OPENSSL_USE_STATIC_LIBS TRUE)
- 	else()
+	else()
 		message(FATAL_ERROR "Cannot locate OpenSSL directory\nPlease run: brew install openssl")
 	endif()
 endif()
@@ -500,13 +495,13 @@ if(NOT OPENSSL_FOUND)
 		if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/openssl.zip")
 			message(STATUS "Downloading openssl...")
 			file(DOWNLOAD https://firedaemon.com/download-firedaemon-openssl-3.1-zip
-				"${CMAKE_BINARY_DIR}/external/openssl.zip" SHOW_PROGRESS)
+					"${CMAKE_BINARY_DIR}/external/openssl.zip" SHOW_PROGRESS)
 		endif()
 
 		if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/openssl")
 			file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/external/openssl")
 			execute_process(COMMAND ${CMAKE_COMMAND} -E tar xf "${CMAKE_BINARY_DIR}/external/openssl.zip"
-				WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external/openssl")
+					WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external/openssl")
 		endif()
 
 		set(OPENSSL_ROOT_DIR "${CMAKE_BINARY_DIR}/external/openssl/openssl-3/x64")
@@ -522,9 +517,9 @@ add_library(ssl INTERFACE)
 target_link_libraries(ssl INTERFACE OpenSSL::SSL)
 
 file(GLOB LIBATRAC9_SOURCES
-	LibAtrac9/C/src/*.c
-	LibAtrac9/C/src/*.h
-)
+		LibAtrac9/C/src/*.c
+		LibAtrac9/C/src/*.h
+		)
 add_library(libatrac9 STATIC ${LIBATRAC9_SOURCES})
 
 target_include_directories(libatrac9 PUBLIC LibAtrac9/C/src)
@@ -537,9 +532,9 @@ set_property(TARGET xxhash PROPERTY FOLDER externals)
 
 # Tracy
 option(TRACY_ENABLE_ON_CORE_COMPONENTS
-	"Enable and require Tracy to compile core components such as the renderer, shader recompiler and
+		"Enable and require Tracy to compile core components such as the renderer, shader recompiler and
 		HLE modules"
-	ON)
+		ON)
 add_library(tracy STATIC tracy/public/TracyClient.cpp)
 target_include_directories(tracy SYSTEM PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tracy/public>)
 target_link_libraries(tracy PUBLIC ${CMAKE_DL_LIBS})
