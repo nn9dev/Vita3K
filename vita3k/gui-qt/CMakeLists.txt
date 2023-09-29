@@ -2,8 +2,9 @@ add_library(
         gui-qt
         STATIC
         include/gui-qt/functions.h
-        #include/gui/state.h
-        #include/gui/qt_impl_sdl_state.h
+        include/gui-qt/state.h
+        include/gui-qt/qt_impl_sdl_state.h
+        src/home_screen.cpp
         src/gui-qt.cpp
         # list files whenever we begin to add them
 )

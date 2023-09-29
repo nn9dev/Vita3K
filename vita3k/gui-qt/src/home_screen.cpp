@@ -15,21 +15,21 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-#pragma once
+#include <gui/functions.h>
 
-#include <gui-qt/state.h>
 
-#include <cstdint>
-#include <string>
-#include <vector>
+#include <io/VitaIoDevice.h>
 
-struct DisplayState;
-struct EmuEnvState;
-struct SDL_Window;
-struct NpTrophyUnlockCallbackData;
+#include <util/log.h>
+#include <util/safe_time.h>
+#include <util/string_utils.h>
+
+using namespace std::string_literals;
 
 namespace gui_qt {
 
-void pre_init(GuiState &gui, EmuEnvState &emuenv);
+std::vector<std::string>::iterator get_live_area_current_open_apps_list_index(GuiState &gui, const std::string &app_path) {
+    return std::find(gui.live_area_current_open_apps_list.begin(), gui.live_area_current_open_apps_list.end(), app_path);
+}
 
-} // namespace gui
+}

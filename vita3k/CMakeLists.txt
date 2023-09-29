@@ -116,7 +116,8 @@ add_subdirectory(dialog)
 add_subdirectory(display)
 add_subdirectory(features)
 add_subdirectory(glutil)
-add_subdirectory(gui)
+add_subdirectory(gui)		#eventually we'll be able to comment this line...
+#todo: app (links gui), compat (links gui), emuenv (links app), gui (links imgui), lang (links compat, gui), modules (links gui)
 add_subdirectory(gui-qt)
 add_subdirectory(gxm)
 add_subdirectory(host)
@@ -148,16 +149,18 @@ add_subdirectory(vkutil)
 
 add_executable(vita3k MACOSX_BUNDLE main.cpp interface.cpp interface.h performance.cpp)
 
-target_link_libraries(vita3k PRIVATE app config ctrl display gdbstub gui gxm io miniz modules packages renderer shader touch)
-target_link_libraries(vita3k PRIVATE gui-qt)
+target_link_libraries(vita3k PRIVATE app config ctrl display gdbstub gxm io miniz modules packages renderer shader touch)
 
 if(USE_DISCORD_RICH_PRESENCE)
 	target_link_libraries(vita3k PRIVATE discord-rpc)
 endif()
 if(USE_QT_FRONTEND)
-	#target_link_libraries(vita3k PRIVATE gui-qt)
+	target_link_libraries(vita3k PRIVATE gui-qt)
 	target_link_libraries(vita3k PRIVATE ${Qt5_LIBRARIES})
+#else() # one day we'll be able to uncomment this...
+	target_link_libraries(vita3k PRIVATE gui)
 endif()
+
 
 
 set_target_properties(vita3k PROPERTIES OUTPUT_NAME Vita3K

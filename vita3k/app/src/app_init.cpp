@@ -244,7 +244,7 @@ bool late_init(EmuEnvState &state) {
 }
 
 void destroy(EmuEnvState &emuenv, ImGui_State *imgui) {
-    ImGui_ImplSdl_Shutdown(imgui);
+    //ImGui_ImplSdl_Shutdown(imgui);
 
 #ifdef USE_DISCORD
     discordrpc::shutdown();

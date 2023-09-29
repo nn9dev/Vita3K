@@ -24,7 +24,7 @@
 #include <ctrl/state.h>
 #include <display/functions.h>
 #include <display/state.h>
-#include <gui/functions.h>
+#include <gui-qt/functions.h>
 #include <gxm/state.h>
 #include <io/device.h>
 #include <io/functions.h>
@@ -43,7 +43,7 @@
 #include <util/log.h>
 #include <util/string_utils.h>
 
-#include <gui/imgui_impl_sdl.h>
+#include <gui-qt/qt_impl_sdl.h>
 
 #include <regex>
 
@@ -70,12 +70,12 @@ static const char *miniz_get_error(const ZipPtr &zip) {
 }
 
 static void set_theme_name(EmuEnvState &emuenv, vfs::FileBuffer &buf) {
-    emuenv.app_info.app_title = gui::get_theme_title_from_buffer(buf);
+    /*emuenv.app_info.app_title = gui::get_theme_title_from_buffer(buf);
     emuenv.app_info.app_title_id = string_utils::remove_special_chars(emuenv.app_info.app_title);
     const auto nospace = std::remove_if(emuenv.app_info.app_title_id.begin(), emuenv.app_info.app_title_id.end(), isspace);
     emuenv.app_info.app_title_id.erase(nospace, emuenv.app_info.app_title_id.end());
     emuenv.app_info.app_category = "theme";
-    emuenv.app_info.app_title += " (Theme)";
+    emuenv.app_info.app_title += " (Theme)";*/
 }
 
 static bool is_nonpdrm(EmuEnvState &emuenv, const fs::path &output_path) {
@@ -143,7 +143,7 @@ bool install_archive_content(EmuEnvState &emuenv, GuiState *gui, const fs::path 
     }
 
     const auto created = fs::create_directories(output_path);
-    if (!created) {
+    /*if (!created) {
         if (!gui || gui->file_menu.archive_install_dialog) {
             fs::remove_all(output_path);
         } else if (!gui->file_menu.archive_install_dialog) {
@@ -173,7 +173,7 @@ bool install_archive_content(EmuEnvState &emuenv, GuiState *gui, const fs::path 
             default: break;
             }
         }
-    }
+    }*/
 
     float file_progress = 0;
     float decrypt_progress = 0;
@@ -233,13 +233,13 @@ bool install_archive_content(EmuEnvState &emuenv, GuiState *gui, const fs::path 
 
     LOG_INFO("{} [{}] installed successfully!", emuenv.app_info.app_title, emuenv.app_info.app_title_id);
 
-    if (!gui->file_menu.archive_install_dialog && (emuenv.app_info.app_category != "theme")) {
+    /*if (!gui->file_menu.archive_install_dialog && (emuenv.app_info.app_category != "theme")) {
         gui::update_notice_info(*gui, emuenv, "content");
         if ((emuenv.app_info.app_category.find("gd") != std::string::npos) || (emuenv.app_info.app_category.find("gp") != std::string::npos)) {
             gui::init_user_app(*gui, emuenv, emuenv.app_info.app_title_id);
             gui::save_apps_cache(*gui, emuenv);
         }
-    }
+    }*/
 
     return true;
 }
@@ -385,13 +385,13 @@ static bool install_content(EmuEnvState &emuenv, GuiState *gui, const fs::path &
 
     LOG_INFO("{} [{}] installed successfully!", emuenv.app_info.app_title, emuenv.app_info.app_title_id);
 
-    if ((emuenv.app_info.app_category.find("gd") != std::string::npos) || (emuenv.app_info.app_category.find("gp") != std::string::npos)) {
+    /*if ((emuenv.app_info.app_category.find("gd") != std::string::npos) || (emuenv.app_info.app_category.find("gp") != std::string::npos)) {
         gui::init_user_app(*gui, emuenv, emuenv.app_info.app_title_id);
         gui::save_apps_cache(*gui, emuenv);
     }
 
     if (emuenv.app_info.app_category != "theme")
-        gui::update_notice_info(*gui, emuenv, "content");
+        gui::update_notice_info(*gui, emuenv, "content");*/
 
     return true;
 }
@@ -407,10 +407,10 @@ uint32_t install_contents(EmuEnvState &emuenv, GuiState *gui, const fs::path &pa
             ++installed;
     }
 
-    if (installed) {
+    /*if (installed) {
         gui::save_apps_cache(*gui, emuenv);
         LOG_INFO("Successfully installed {} content!", installed);
-    }
+    }*/
 
     return installed;
 }
@@ -547,8 +547,8 @@ static void switch_full_screen(EmuEnvState &emuenv) {
 
 bool handle_events(EmuEnvState &emuenv, GuiState &gui) {
     refresh_controllers(emuenv.ctrl, emuenv);
-    const auto allow_switch_state = !emuenv.io.title_id.empty() && !gui.vita_area.app_close && !gui.vita_area.user_management && !gui.configuration_menu.custom_settings_dialog && !gui.configuration_menu.settings_dialog && !gui.controls_menu.controls_dialog && gui::get_sys_apps_state(gui);
-    const auto switch_live_area_state = [](EmuEnvState &emuenv, GuiState &gui) {
+    //const auto allow_switch_state = !emuenv.io.title_id.empty() && !gui.vita_area.app_close && !gui.vita_area.user_management && !gui.configuration_menu.custom_settings_dialog && !gui.configuration_menu.settings_dialog && !gui.controls_menu.controls_dialog && gui::get_sys_apps_state(gui);
+    /*const auto switch_live_area_state = [](EmuEnvState &emuenv, GuiState &gui) {
         // Show/Hide Live Area during app running
         if (!gui.is_key_locked && !gui.vita_area.home_screen) {
             const auto live_area_app_index = gui::get_live_area_current_open_apps_list_index(gui, emuenv.io.app_path);
@@ -566,9 +566,9 @@ bool handle_events(EmuEnvState &emuenv, GuiState &gui) {
 
             app::switch_state(emuenv, !emuenv.kernel.is_threads_paused());
         }
-    };
+    };*/
 
-    const auto close_and_run_new_app = [&gui, &emuenv](const uint32_t button) {
+    /*const auto close_and_run_new_app = [&gui, &emuenv](const uint32_t button) {
         const auto cancel = [&]() {
             gui.vita_area.app_close = false;
         };
@@ -591,9 +591,9 @@ bool handle_events(EmuEnvState &emuenv, GuiState &gui) {
             break;
         default: break;
         }
-    };
+    };*/
 
-    const auto browse_common_dialog = [&gui, &emuenv](const uint32_t button) {
+    /*const auto browse_common_dialog = [&gui, &emuenv](const uint32_t button) {
         switch (emuenv.common_dialog.type) {
         case SAVEDATA_DIALOG:
             gui::browse_save_data_dialog(gui, emuenv, button);
@@ -795,7 +795,7 @@ bool handle_events(EmuEnvState &emuenv, GuiState &gui) {
             break;
         }
         }
-    }
+    }*/
 
     return true;
 }

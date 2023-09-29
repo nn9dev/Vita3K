@@ -1,0 +1,293 @@
+// Vita3K emulator project
+// Copyright (C) 2023 Vita3K team
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+#pragma once
+
+#include <compat/state.h>
+#include <config/config.h>
+#include <dialog/state.h>
+#include <ime/state.h>
+#include <lang/state.h>
+#include <np/state.h>
+#include <gui-qt/qt_impl_sdl_state.h>
+
+#include <glutil/object.h>
+
+#include <atomic>
+#include <mutex>
+#include <optional>
+#include <queue>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+
+#include <QVulkanInstance>
+#include <QVulkanWindow>
+
+struct GuiState;
+struct EmuEnvState;
+
+namespace gui_qt {
+
+enum SortState {
+    NOT_SORTED,
+    ASCENDANT,
+    DESCENDANT
+};
+
+enum SortType {
+    APP_VER,
+    CATEGORY,
+    COMPAT,
+    LAST_TIME,
+    TITLE,
+    TITLE_ID
+};
+
+struct App {
+    std::string app_ver;
+    std::string category;
+    std::string content_id;
+    std::string addcont;
+    std::string savedata;
+    std::string parental_level;
+    std::string stitle;
+    std::string title;
+    std::string title_id;
+    std::string path;
+    time_t last_time;
+    compat::CompatibilityState compat;
+};
+
+struct AppInfo {
+    std::string trophy;
+    tm updated;
+    size_t size;
+};
+
+struct IconData {
+    int32_t width = 0;
+    int32_t height = 0;
+
+    std::unique_ptr<void, void (*)(void *)> data;
+
+    IconData();
+};
+
+struct IconAsyncLoader {
+    std::mutex mutex;
+
+    std::unordered_map<std::string, IconData> icon_data;
+
+    std::thread thread;
+    std::atomic_bool quit = false;
+
+    void commit(GuiState &gui);
+
+    //IconAsyncLoader(GuiState &gui, EmuEnvState &emuenv, const std::vector<gui::App> &app_list);
+    //~IconAsyncLoader();
+};
+
+struct AppsSelector {
+    std::vector<App> sys_apps;
+    std::vector<App> user_apps;
+    uint32_t apps_cache_lang;
+    AppInfo app_info;
+    std::optional<IconAsyncLoader> icon_async_loader;
+    /*std::map<std::string, ImGui_Texture> sys_apps_icon;
+    std::map<std::string, ImGui_Texture> user_apps_icon;*/
+    bool is_app_list_sorted{ false };
+    std::map<SortType, SortState> app_list_sorted;
+};
+
+struct VitaAreaState {
+    bool app_close = false;
+    bool app_information = false;
+    bool content_manager = false;
+    bool home_screen = false;
+    bool information_bar = false;
+    bool live_area_screen = false;
+    bool manual = false;
+    bool settings = false;
+    bool start_screen = false;
+    bool trophy_collection = false;
+    bool user_management = false;
+};
+
+struct FileMenuState {
+    bool firmware_install_dialog = false;
+    bool pkg_install_dialog = false;
+    bool archive_install_dialog = false;
+    bool license_install_dialog = false;
+};
+
+struct DebugMenuState {
+    bool threads_dialog = false;
+    bool thread_details_dialog = false;
+    bool semaphores_dialog = false;
+    bool condvars_dialog = false;
+    bool lwcondvars_dialog = false;
+    bool mutexes_dialog = false;
+    bool lwmutexes_dialog = false;
+    bool eventflags_dialog = false;
+    bool allocations_dialog = false;
+    bool memory_editor_dialog = false;
+    bool disassembly_dialog = false;
+};
+
+struct ConfigurationMenuState {
+    bool custom_settings_dialog = false;
+    bool settings_dialog = false;
+};
+
+struct ControlMenuState {
+    bool controls_dialog = false;
+    bool controllers_dialog = false;
+};
+
+struct HelpMenuState {
+    bool about_dialog = false;
+    bool vita3k_update = false;
+    bool welcome_dialog = false;
+};
+
+} // namespace gui_qt
+
+enum class TrophyAnimationStage {
+    SLIDE_IN = 0,
+    STATIC = 1,
+    SLIDE_OUT = 2,
+    END = 3
+};
+
+enum DateTime {
+    CLOCK,
+    DATE_DETAIL,
+    DATE_MINI,
+    DAY_MOMENT,
+    HOUR,
+};
+
+struct User {
+    std::string id;
+    std::string name = "Vita3K";
+    std::string avatar = "default";
+    gui_qt::SortType sort_apps_type = gui_qt::TITLE;
+    gui_qt::SortState sort_apps_state = gui_qt::ASCENDANT;
+    std::string theme_id = "default";
+    bool use_theme_bg = true;
+    std::string start_type = "default";
+    std::string start_path;
+    std::vector<std::string> backgrounds;
+};
+
+struct TimeApp {
+    std::string app;
+    time_t last_time_used;
+    int64_t time_used;
+};
+
+struct InfoBarColor {
+    uint32_t bar = 0xFF000000;  // used to be type ImU32
+    uint32_t indicator = 0xFFFFFFFF;
+    uint32_t notice_font = 0xFFFFFFFF;
+};
+
+enum NoticeIcon {
+    NO,
+    NEW
+};
+
+enum ModulesModeType {
+    MODE,
+    DESCRIPTION,
+};
+
+enum ThemePreviewType {
+    PACKAGE,
+    HOME,
+    LOCK,
+};
+
+enum ShadersCompiledDisplay {
+    Time,
+    Count
+};
+
+static constexpr auto MODULES_MODE_COUNT = 3;
+using ConfigModuleMode = std::array<std::vector<const char *>, MODULES_MODE_COUNT>;
+
+inline ConfigModuleMode init_modules_mode() {
+    ConfigModuleMode m;
+
+    m[ModulesMode::AUTOMATIC] = { "Automatic", "Select Automatic mode to use a preset list of modules." };
+    m[ModulesMode::AUTO_MANUAL] = { "Auto & Manual", "Select this mode to load Automatic module and selected modules from the list below." };
+    m[ModulesMode::MANUAL] = { "Manual", "Select Manual mode to load selected modules from the list below." };
+
+    return m;
+}
+
+const ConfigModuleMode config_modules_mode = init_modules_mode();
+
+inline const std::vector<std::pair<SceSystemParamLang, std::string>> qLIST_SYS_LANG = {
+    { SCE_SYSTEM_PARAM_LANG_DANISH, "Dansk" },
+    { SCE_SYSTEM_PARAM_LANG_GERMAN, "Deutsch" },
+    { SCE_SYSTEM_PARAM_LANG_ENGLISH_GB, "English (United Kingdom)" },
+    { SCE_SYSTEM_PARAM_LANG_ENGLISH_US, "English (United States)" },
+    { SCE_SYSTEM_PARAM_LANG_SPANISH, reinterpret_cast<const char *>(u8"Español") },
+    { SCE_SYSTEM_PARAM_LANG_FRENCH, reinterpret_cast<const char *>(u8"Français") },
+    { SCE_SYSTEM_PARAM_LANG_ITALIAN, "Italiano" },
+    { SCE_SYSTEM_PARAM_LANG_DUTCH, "Nederlands" },
+    { SCE_SYSTEM_PARAM_LANG_NORWEGIAN, "Norsk" },
+    { SCE_SYSTEM_PARAM_LANG_POLISH, "Polski" },
+    { SCE_SYSTEM_PARAM_LANG_PORTUGUESE_BR, reinterpret_cast<const char *>(u8"Português (Brasil)") },
+    { SCE_SYSTEM_PARAM_LANG_PORTUGUESE_PT, reinterpret_cast<const char *>(u8"Português (Portugal)") },
+    { SCE_SYSTEM_PARAM_LANG_RUSSIAN, reinterpret_cast<const char *>(u8"Русский") },
+    { SCE_SYSTEM_PARAM_LANG_FINNISH, "Suomi" },
+    { SCE_SYSTEM_PARAM_LANG_SWEDISH, "Svenska" },
+    { SCE_SYSTEM_PARAM_LANG_TURKISH, reinterpret_cast<const char *>(u8"Türkçe") },
+    { SCE_SYSTEM_PARAM_LANG_JAPANESE, reinterpret_cast<const char *>(u8"日本語") },
+    { SCE_SYSTEM_PARAM_LANG_KOREAN, "Korean" },
+    { SCE_SYSTEM_PARAM_LANG_CHINESE_S, "Chinese - Simplified" },
+    { SCE_SYSTEM_PARAM_LANG_CHINESE_T, reinterpret_cast<const char *>(u8"繁體中文") },
+};
+
+struct InfoMessage {
+    std::string function;
+    spdlog::level::level_enum level;
+    std::string msg;
+};
+
+struct GuiState {
+    std::unique_ptr<Qt_State> qt_state;
+
+    QVulkanInstance inst;
+    QVulkanWindow window;
+
+    gui_qt::FileMenuState file_menu;
+    gui_qt::DebugMenuState debug_menu;
+    gui_qt::ConfigurationMenuState configuration_menu;
+    gui_qt::ControlMenuState controls_menu;
+    gui_qt::HelpMenuState help_menu;
+    gui_qt::VitaAreaState vita_area;
+    gui_qt::AppsSelector app_selector;
+
+    bool is_nav_button = false;
+    bool is_key_locked = false;
+
+    std::vector<std::string> live_area_current_open_apps_list;
+};

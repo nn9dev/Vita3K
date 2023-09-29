@@ -15,6 +15,7 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+#include "gui-qt/functions.h"
 #include "interface.h"
 
 #include <app/functions.h>
@@ -22,9 +23,10 @@
 #include <config/version.h>
 #include <display/state.h>
 #include <emuenv/state.h>
-#include <gui/functions.h>
+//#include <gui/functions.h>
 #include <gui-qt/functions.h>
-#include <gui/state.h>
+//#include <gui/state.h>
+#include <gui-qt/state.h>
 #include <io/state.h>
 #include <kernel/state.h>
 #include <modules/module_parent.h>
@@ -37,6 +39,8 @@
 #include <shader/spirv_recompiler.h>
 #include <util/log.h>
 #include <util/string_utils.h>
+
+#include <QApplication>
 
 #if USE_DISCORD
 #include <app/discord.h>
@@ -85,7 +89,7 @@ static void run_execv(char *argv[], EmuEnvState &emuenv) {
 };
 
 int main(int argc, char *argv[]) {
-    gui_qt::test();
+    QApplication app(argc, argv);
     ZoneScoped; // Tracy - Track main function scope
     Root root_paths;
     root_paths.set_base_path(string_utils::utf_to_wide(SDL_GetBasePath()));
@@ -194,20 +198,20 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    if (emuenv.cfg.controller_binds.empty() || (emuenv.cfg.controller_binds.size() != 15))
-        gui::reset_controller_binding(emuenv);
+    /*if (emuenv.cfg.controller_binds.empty() || (emuenv.cfg.controller_binds.size() != 15))
+        gui::reset_controller_binding(emuenv);*/ //TODO: Add controllers_dialog
 
     init_libraries(emuenv);
 
     GuiState gui;
     if (!cfg.console) {
-        gui::pre_init(gui, emuenv);
+        gui_qt::pre_init(gui, emuenv);
         if (!emuenv.cfg.initial_setup) {
             while (!emuenv.cfg.initial_setup) {
                 if (handle_events(emuenv, gui)) {
-                    gui::draw_begin(gui, emuenv);
+                    /*gui::draw_begin(gui, emuenv);
                     gui::draw_initial_setup(gui, emuenv);
-                    gui::draw_end(gui, emuenv.window.get());
+                    gui::draw_end(gui, emuenv.window.get());*/
                     emuenv.renderer->swap_window(emuenv.window.get());
                 } else
                     return QuitRequested;
@@ -215,7 +219,7 @@ int main(int argc, char *argv[]) {
             config::serialize_config(emuenv.cfg, emuenv.base_path);
             run_execv(argv, emuenv);
         }
-        gui::init(gui, emuenv);
+        //gui::init(gui, emuenv);
     }
 
     if (cfg.content_path.has_value()) {
@@ -246,14 +250,14 @@ int main(int argc, char *argv[]) {
                 LOG_ERROR("File dropped: [{}] is not supported.", cfg.content_path->string());
 
             emuenv.cfg.content_path.reset();
-            if (!cfg.console)
-                gui::init_home(gui, emuenv);
+            /*if (!cfg.console)
+                gui::init_home(gui, emuenv);*/
         }
     }
 
     if (run_type == app::AppRunType::Extracted) {
         emuenv.io.app_path = cfg.run_app_path ? *cfg.run_app_path : emuenv.app_info.app_title_id;
-        gui::init_user_app(gui, emuenv, emuenv.io.app_path);
+        //gui::init_user_app(gui, emuenv, emuenv.io.app_path);
         if (emuenv.cfg.run_app_path.has_value())
             emuenv.cfg.run_app_path.reset();
         else if (emuenv.cfg.content_path.has_value())
@@ -285,15 +289,15 @@ int main(int argc, char *argv[]) {
 
             if (handle_events(emuenv, gui)) {
                 ZoneScopedN("UI rendering"); // Tracy - Track UI rendering loop scope
-                gui::draw_begin(gui, emuenv);
+                //gui::draw_begin(gui, emuenv);
 
 #if USE_DISCORD
                 discordrpc::update_init_status(emuenv.cfg.discord_rich_presence, &discord_rich_presence_old);
 #endif
-                gui::draw_vita_area(gui, emuenv);
+                /*gui::draw_vita_area(gui, emuenv);
                 gui::draw_ui(gui, emuenv);
 
-                gui::draw_end(gui, emuenv.window.get());
+                gui::draw_end(gui, emuenv.window.get());*/
                 emuenv.renderer->swap_window(emuenv.window.get());
                 FrameMark; // Tracy - Frame end mark for UI rendering loop
             } else {
@@ -302,8 +306,8 @@ int main(int argc, char *argv[]) {
 
             if (!emuenv.io.app_path.empty()) {
                 run_type = app::AppRunType::Extracted;
-                gui.vita_area.home_screen = false;
-                gui.vita_area.live_area_screen = false;
+                /*gui.vita_area.home_screen = false;
+                gui.vita_area.live_area_screen = false;*/
             }
         }
     }
@@ -315,17 +319,17 @@ int main(int argc, char *argv[]) {
         return Success;
     }
 
-    gui::set_config(gui, emuenv, emuenv.io.app_path);
+    //gui::set_config(gui, emuenv, emuenv.io.app_path);
 
-    const auto APP_INDEX = gui::get_app_index(gui, emuenv.io.app_path);
-    emuenv.app_info.app_version = APP_INDEX->app_ver;
+    //const auto APP_INDEX = gui::get_app_index(gui, emuenv.io.app_path);
+    /*emuenv.app_info.app_version = APP_INDEX->app_ver;
     emuenv.app_info.app_category = APP_INDEX->category;
     emuenv.app_info.app_content_id = APP_INDEX->content_id;
     emuenv.io.addcont = APP_INDEX->addcont;
     emuenv.io.savedata = APP_INDEX->savedata;
     emuenv.current_app_title = APP_INDEX->title;
     emuenv.app_info.app_short_title = APP_INDEX->stitle;
-    emuenv.io.title_id = APP_INDEX->title_id;
+    emuenv.io.title_id = APP_INDEX->title_id;*/
 
     // Check license for PS App Only
     if (emuenv.io.title_id.find("PCS") != std::string::npos)
@@ -338,12 +342,12 @@ int main(int argc, char *argv[]) {
             return main_thread->status == ThreadStatus::dormant;
         });
         return Success;
-    } else {
+    } /*else {
         gui.imgui_state->do_clear_screen = false;
-    }
+    }*/
 
-    gui::init_app_background(gui, emuenv, emuenv.io.app_path);
-    gui::update_last_time_app_used(gui, emuenv, emuenv.io.app_path);
+    /*gui::init_app_background(gui, emuenv, emuenv.io.app_path);
+    gui::update_last_time_app_used(gui, emuenv, emuenv.io.app_path);*/
 
     if (!app::late_init(emuenv)) {
         app::error_dialog("Failed to initialize Vita3K", emuenv.window.get());
@@ -354,12 +358,12 @@ int main(int argc, char *argv[]) {
         const auto pos_min = ImVec2(emuenv.viewport_pos.x, emuenv.viewport_pos.y);
         const auto pos_max = ImVec2(pos_min.x + emuenv.viewport_size.x, pos_min.y + emuenv.viewport_size.y);
 
-        if (gui.apps_background.contains(emuenv.io.app_path))
+        /*if (gui.apps_background.contains(emuenv.io.app_path))
             // Display application background
             ImGui::GetBackgroundDrawList()->AddImage(gui.apps_background[emuenv.io.app_path], pos_min, pos_max);
         // Application background not found
         else
-            gui::draw_background(gui, emuenv);
+            gui::draw_background(gui, emuenv);*/
     };
 
     int32_t main_module_id;
@@ -368,7 +372,7 @@ int main(int argc, char *argv[]) {
         if (err != Success)
             return err;
     }
-    gui.vita_area.information_bar = false;
+    //gui.vita_area.information_bar = false;
 
     // Pre-Compile Shaders
     emuenv.renderer->base_path = emuenv.base_path.c_str();
@@ -378,13 +382,13 @@ int main(int argc, char *argv[]) {
         SDL_SetWindowTitle(emuenv.window.get(), fmt::format("{} | {} ({}) | Please wait, compiling shaders...", window_title, emuenv.current_app_title, emuenv.io.title_id).c_str());
         for (const auto &hash : emuenv.renderer->shaders_cache_hashs) {
             handle_events(emuenv, gui);
-            gui::draw_begin(gui, emuenv);
+            //gui::draw_begin(gui, emuenv);
             draw_app_background(gui, emuenv);
 
             emuenv.renderer->precompile_shader(hash);
-            gui::draw_pre_compiling_shaders_progress(gui, emuenv, uint32_t(emuenv.renderer->shaders_cache_hashs.size()));
+            //gui::draw_pre_compiling_shaders_progress(gui, emuenv, uint32_t(emuenv.renderer->shaders_cache_hashs.size()));
 
-            gui::draw_end(gui, emuenv.window.get());
+            //gui::draw_end(gui, emuenv.window.get());
             emuenv.renderer->swap_window(emuenv.window.get());
         }
     }
@@ -407,11 +411,11 @@ int main(int argc, char *argv[]) {
             emuenv.renderer->render_frame(viewport_pos, viewport_size, emuenv.display, emuenv.gxm, emuenv.mem);
         }
 
-        gui::draw_begin(gui, emuenv);
+        /*gui::draw_begin(gui, emuenv);
         gui::draw_common_dialog(gui, emuenv);
         draw_app_background(gui, emuenv);
 
-        gui::draw_end(gui, emuenv.window.get());
+        gui::draw_end(gui, emuenv.window.get());*/
         emuenv.renderer->swap_window(emuenv.window.get());
         FrameMark; // Tracy - Frame end mark for game loading loop
     }
@@ -432,7 +436,7 @@ int main(int argc, char *argv[]) {
         app::calculate_fps(emuenv);
 
         // Set shaders compiled display
-        gui::set_shaders_compiled_display(gui, emuenv);
+        /*gui::set_shaders_compiled_display(gui, emuenv);
 
         gui::draw_begin(gui, emuenv);
         if (!emuenv.kernel.is_threads_paused())
@@ -449,7 +453,7 @@ int main(int argc, char *argv[]) {
             gui::draw_ui(gui, emuenv);
         }
 
-        gui::draw_end(gui, emuenv.window.get());
+        gui::draw_end(gui, emuenv.window.get());*/
         emuenv.renderer->swap_window(emuenv.window.get());
         FrameMark; // Tracy - Frame end mark for game rendering loop
     }
@@ -459,7 +463,7 @@ int main(int argc, char *argv[]) {
 #endif
 
     emuenv.renderer->preclose_action();
-    app::destroy(emuenv, gui.imgui_state.get());
+    //app::destroy(emuenv, gui.imgui_state.get());
 
     if (emuenv.load_exec)
         run_execv(argv, emuenv);
