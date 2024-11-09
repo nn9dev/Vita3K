@@ -249,6 +249,7 @@ void draw_archive_install_dialog(GuiState &gui, EmuEnvState &emuenv) {
             ImGui::Separator();
             ImGui::Spacing();
             ImGui::Checkbox(lang["delete_archive"].c_str(), &delete_archive_file);
+            ImGui::Checkbox("Restore save file?", &gui.vita_area.backup_savefile);
             ImGui::SetCursorPos(ImVec2(POS_BUTTON, WINDOW_SIZE.y - BUTTON_SIZE.y - (12.f * SCALE.y)));
             if (ImGui::Button(common["ok"].c_str(), BUTTON_SIZE)) {
                 for (const auto &archive : contents_archives) {

@@ -122,6 +122,7 @@ struct VitaAreaState {
     bool start_screen = false;
     bool trophy_collection = false;
     bool user_management = false;
+    bool backup_savefile = true;
 };
 
 struct FileMenuState {

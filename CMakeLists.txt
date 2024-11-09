@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.17.2)
 project(Vita3K)
 
+add_compile_definitions(WIN32)
+set(CMAKE_TOOLCHAIN_FILE C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake)
+
 # Detects the amount of processors of the host machine and forwards the result to CPU_COUNT
 include(ProcessorCount)
 ProcessorCount(CPU_COUNT)
@@ -118,7 +121,7 @@ macro(boost_compile)
 endmacro(boost_compile)
 
 option(VITA3K_FORCE_CUSTOM_BOOST "Force Vita3K build process to use the Boost version included with the repository" OFF)
-option(VITA3K_FORCE_SYSTEM_BOOST "Force Vita3K build process to use the Boost version in the system and CMake's default paths and ignore the Boost version included with Vita3K" OFF)
+option(VITA3K_FORCE_SYSTEM_BOOST "Force Vita3K build process to use the Boost version in the system and CMake's default paths and ignore the Boost version included with Vita3K" ON)
 
 # Boost modules to be found by CMake
 set(BOOST_MODULES_TO_FIND filesystem system)

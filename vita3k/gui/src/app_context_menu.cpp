@@ -232,7 +232,20 @@ void delete_app(GuiState &gui, EmuEnvState &emuenv, const std::string &app_path)
         const auto PATCH_PATH{ emuenv.pref_path / "ux0/patch" / title_id };
         if (fs::exists(PATCH_PATH))
             fs::remove_all(PATCH_PATH);
+        /*
+         *  NOTE: On a real vita, savefile_backup is a real directory that -- from what I am able to tell -- periodically "backs up" your save files in a single compressed .dat file.
+         *        If your save file gets corrupted for whatever reason (which you can force manually via VitaShell) and load a game, the Vita will restore your save from this backup.
+         *        I haven't looked into this file format, nor do I want to. But I figure that for the purposes of this "feature", using this directory is fine (as it is otherwise unused).
+         */
         const auto SAVE_DATA_PATH{ emuenv.pref_path / "ux0/user" / emuenv.io.user_id / "savedata" / APP_INDEX->savedata };
+        const auto SAVE_DATA_BACKUP_PATH{ emuenv.pref_path / "ux0/user" / emuenv.io.user_id / "savedata_backup" / APP_INDEX->savedata };
+        std::cout<< "SAVE_DATA_PATH: " << SAVE_DATA_PATH << std::endl;
+        std::cout<< "SAVE_DATA_BACKUP_PATH: " << SAVE_DATA_BACKUP_PATH << std::endl;
+        if (gui.vita_area.backup_savefile){
+            if(!fs::exists(SAVE_DATA_BACKUP_PATH))
+                fs::create_directories(SAVE_DATA_BACKUP_PATH);
+            fs::copy(SAVE_DATA_PATH, SAVE_DATA_BACKUP_PATH);
+        }
         if (fs::exists(SAVE_DATA_PATH))
             fs::remove_all(SAVE_DATA_PATH);
         const auto SHADER_CACHE_PATH{ emuenv.cache_path / "shaders" / title_id };
@@ -584,6 +597,8 @@ void draw_app_context_menu(GuiState &gui, EmuEnvState &emuenv, const std::string
             ImGui::PopTextWrapPos();
             if (context_dialog == lang.deleting["app_delete"])
                 SetTooltipEx(lang.deleting["app_delete_description"].c_str());
+            ImGui::SetCursorPos(ImVec2((WINDOW_SIZE.x / 4 - ImGui::CalcTextSize("Delete save data?", 0, false, WINDOW_SIZE.x - (108.f * SCALE.x)).x / 2) + 10 , (WINDOW_SIZE.y / 2) + 80));
+            ImGui::Checkbox("Backup save data?",&gui.vita_area.backup_savefile);
             ImGui::SetWindowFontScale(1.4f * RES_SCALE.x);
             ImGui::SetCursorPos(ImVec2((WINDOW_SIZE.x / 2) - (BUTTON_SIZE.x + (20.f * SCALE.x)), WINDOW_SIZE.y - BUTTON_SIZE.y - (24.0f * SCALE.y)));
             if (ImGui::Button(common["cancel"].c_str(), BUTTON_SIZE) || ImGui::IsKeyPressed(static_cast<ImGuiKey>(emuenv.cfg.keyboard_button_circle))) {
@@ -599,9 +614,11 @@ void draw_app_context_menu(GuiState &gui, EmuEnvState &emuenv, const std::string
                 fs::remove_all(ADDCONT_PATH);
             if (context_dialog == lang.deleting["license_delete"])
                 fs::remove_all(LICENSE_PATH);
-            else if (context_dialog == lang.deleting["saved_data_delete"])
+            else if (context_dialog == lang.deleting["saved_data_delete"])    // this is redundant...
                 fs::remove_all(SAVE_DATA_PATH);
             context_dialog.clear();
+            gui.vita_area.backup_savefile=true;
+            init_user_apps(gui, emuenv);
         }
         ImGui::PopStyleVar();
         ImGui::EndChild();

@@ -162,6 +162,8 @@ void draw_pkg_install_dialog(GuiState &gui, EmuEnvState &emuenv) {
             if (license_path != "")
                 ImGui::Checkbox(lang["delete_bin_rif"].c_str(), &delete_license_file);
             ImGui::Spacing();
+            ImGui::Checkbox("Restore save file?", &gui.vita_area.backup_savefile);
+            ImGui::Spacing();
             ImGui::SetCursorPos(ImVec2(POS_BUTTON, ImGui::GetWindowSize().y - BUTTON_SIZE.y - (20.f * SCALE.y)));
             if (ImGui::Button(common["ok"].c_str(), BUTTON_SIZE)) {
                 if (delete_pkg_file) {
@@ -171,6 +173,16 @@ void draw_pkg_install_dialog(GuiState &gui, EmuEnvState &emuenv) {
                 if (delete_license_file) {
                     fs::remove(fs::path(license_path.native()));
                     delete_license_file = false;
+                }
+
+                const auto APP_INDEX = get_app_index(gui, emuenv.app_path);
+                //const auto SAVE_DATA_PATH {};
+                //const auto SAVE_DATA_PATH{ emuenv.pref_path / "ux0/user" / emuenv.io.user_id / "savedata" / APP_INDEX->savedata };
+                //const auto SAVE_DATA_BACKUP_PATH{ emuenv.pref_path / "ux0/user" / emuenv.io.user_id / "savedata_backup" / APP_INDEX->savedata };
+
+
+                if (gui.vita_area.backup_savefile) {
+
                 }
                 if ((emuenv.app_info.app_category.find("gd") != std::string::npos) || (emuenv.app_info.app_category.find("gp") != std::string::npos)) {
                     init_user_app(gui, emuenv, emuenv.app_info.app_title_id);

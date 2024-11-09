@@ -32,7 +32,10 @@
       "displayName": "Windows with Visual Studio 2022",
       "description": "Windows native build using Visual Studio 2022 generator and default toolchain/compiler",
       "generator": "Visual Studio 17 2022",
-      "architecture": "x64"
+      "architecture": "x64",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      }
     },
     {
       "name": "windows-vs2022-clang",
@@ -40,6 +43,12 @@
       "displayName": "Windows with Visual Studio 2022 and Clang",
       "description": "Windows native build using Visual Studio 2022 generator and the ClangCL/LLVM toolchain",
       "toolset": "ClangCL"
+    },
+    {
+      "name": "windows-vs2022-relwithdebinfo1",
+      "inherits": "windows-vs2022",
+      "displayName": "Windows with Visual Studio 2022 (RelWithDebInfo1)",
+      "description": "Windows native build using Visual Studio 2022 generator and default toolchain/compiler with RelWithDebInfo configuration"
     },
     {
       "name": "windows-ninja",
@@ -175,6 +184,13 @@
       "description": "Build with compiler optimizations enabled and limited debugging information",
       "configuration": "RelWithDebInfo",
       "configurePreset": "windows-vs2022"
+    },
+    {
+      "name": "windows-vs2022-relwithdebinfo1",
+      "displayName": "Release with debugging information 1",
+      "description": "Build with compiler optimizations enabled and limited debugging information",
+      "configuration": "RelWithDebInfo",
+      "configurePreset": "windows-vs2022-relwithdebinfo1"
     },
     {
       "name": "windows-vs2022-release",
