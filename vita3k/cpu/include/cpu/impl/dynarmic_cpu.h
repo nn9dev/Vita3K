@@ -17,11 +17,12 @@
 
 #pragma once
 
+#include "interface.h"
+
 #include <dynarmic/interface/A32/a32.h>
 #include <dynarmic/interface/exclusive_monitor.h>
 
 #include <cpu/functions.h>
-#include <cpu/impl/unicorn_cpu.h>
 
 #include <memory>
 
