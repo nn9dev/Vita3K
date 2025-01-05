@@ -118,10 +118,17 @@ jobs:
       - name: Ccache setup
         run: ccache -z
 
-      - name: CMake
+      - name: CMake (!= ubuntu-latest)
         run: |
           cmake ${{ matrix.extra_cmake_args }} --preset ${{ matrix.cmake_preset }}
           cmake --build build/${{ matrix.cmake_preset }} --config ${{ matrix.config }}
+        if: matrix.os != 'ubuntu-latest'
+
+      - name: CMake (ubuntu-latest, static glibc)
+        run: |
+          cmake ${{ matrix.extra_cmake_args }} --preset ${{ matrix.cmake_preset }} -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++"
+          cmake --build build/${{ matrix.cmake_preset }} --config ${{ matrix.config }}
+        if: matrix.os == 'ubuntu-latest'
 
       - name: CTest
         working-directory: build/${{ matrix.cmake_preset }}
