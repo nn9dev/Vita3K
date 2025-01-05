@@ -144,6 +144,8 @@ endif()
 
 if(LINUX)
 	target_link_libraries(vita3k PRIVATE -static-libgcc -static-libstdc++)
+ 	set(CMAKE_CXX_FLAGS "-static-libgcc -static-libstdc++")
+  	set(CMAKE_C_FLAGS "-static-libgcc")
 endif()
 
 set_target_properties(vita3k PROPERTIES OUTPUT_NAME Vita3K
