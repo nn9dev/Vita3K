@@ -170,6 +170,11 @@ jobs:
           cp -f ../*AppImage* ./
           rm -f ../*AppImage*
         if: matrix.os == 'ubuntu-22.04' && matrix.version == 'appimage'
+        
+      - name: ls
+        run: |
+          ls -a
+        if: matrix.os == 'ubuntu-22.04'
 
       - uses: actions/upload-artifact@v4
         with:
