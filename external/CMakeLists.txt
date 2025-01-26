@@ -94,13 +94,48 @@ target_include_directories(miniz PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/miniz")
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/sdl2-cmake-scripts")
 
 if(APPLE)
-	set(SDL2_PATH "${CMAKE_CURRENT_SOURCE_DIR}/sdl/macos" CACHE PATH "Where SDL2 is located" FORCE)
+	if(PLATFORM STREQUAL "macosx")
+		set(SDL2_PATH "${CMAKE_CURRENT_SOURCE_DIR}/sdl/macos" CACHE PATH "Where SDL2 is located" FORCE)
+	endif()
+
+	if(PLATFORM STREQUAL "OS64")
+		# i am going to download SDL2.
+		set(SDL_FILENAME "SDL2-2.30.9")
+		if(NOT EXISTS "${CMAKE_BINARY_DIR}/ios/SDL2")
+			message(STATUS "Downloading SDL2 source for iOS...")
+			file(DOWNLOAD https://www.libsdl.org/release/${SDL_FILENAME}.zip
+					"${CMAKE_BINARY_DIR}/ios/${SDL_FILENAME}.zip" SHOW_PROGRESS)
+			execute_process(COMMAND unzip -q "${CMAKE_BINARY_DIR}/ios/${SDL_FILENAME}.zip"
+					WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/ios")
+			execute_process(COMMAND mv "${CMAKE_BINARY_DIR}/ios/${SDL_FILENAME}" "${CMAKE_BINARY_DIR}/ios/SDL2"
+					WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/ios")
+			execute_process(COMMAND rm -f "${CMAKE_BINARY_DIR}/ios/${SDL_FILENAME}.zip")
+			message("Downloading SDL2 source for iOS... done")
+			message("Building SDL2 for iOS...")
+			set(SDL2_PATH "${CMAKE_BINARY_DIR}/ios/SDL2" CACHE PATH "Where SDL2 is located" FORCE)
+			set(SDL2_INCLUDE_DIR "${SDL2_PATH}/include" CACHE PATH "Where the SDL2 include files can be found" FORCE)
+			set(SDL2_LIBRARY "${SDL2_PATH}/Libs/libSDL2.a" CACHE FILEPATH "Where the SDL2 library can be found" FORCE)
+			set(SDL2_STATIC_LIBRARIES "${SDL2_LIBRARY}")
+
+			#    The following arguments need to be passed into this method:
+			#    STATIC_LIBRARY -> Name of the static library to be built
+			#    PROJECT_PATH 	-> Path to the Xcode project
+			#    XCODE_PROJECT	-> The actual Xcode project
+			#    XCODE_TARGET 	-> Xcode target (run xcodebuild -list -project SDL.xcodeproj for a list of targets)
+			#    BUILD_FOLDER 	-> Name of the build folder
+			execute_process(COMMAND ${CMAKE_BINARY_DIR}/ios/build_sdl2.sh )
+			unset(SDL_FILENAME)
+		endif()
+	endif()
+
 elseif(WIN32)
 	set(SDL2_PATH "${CMAKE_CURRENT_SOURCE_DIR}/sdl/windows" CACHE PATH "Where SDL2 is located" FORCE)
 	set(SDL2_INCLUDE_DIR "${SDL2_PATH}/include" CACHE PATH "Where the SDL2 include files can be found" FORCE)
 endif()
 
-find_package(SDL2 REQUIRED)
+if(NOT PLATFORM STREQUAL "OS64")
+find_package(SDL2 REQUIRED)		# might need to fix this l8r
+endif()
 add_library(sdl2 INTERFACE)
 target_include_directories(sdl2 INTERFACE "${SDL2_INCLUDE_DIR}")
 target_link_libraries(sdl2 INTERFACE "${SDL2_LIBRARY}")
@@ -237,18 +272,40 @@ target_include_directories(CLI11 INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/cli11")
 
 add_library(vulkan INTERFACE)
 target_include_directories(vulkan INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/Vulkan-Headers/include")
+# TODO: Detect MoltenVK if it already exists on-device, like from brew
 if(APPLE)
-	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar")
-		message(STATUS "Downloading MoltenVK...")
-		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.2.9/MoltenVK-macos.tar
-			"${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar" SHOW_PROGRESS)
+	set(MOLTENVK_VERSION "1.2.9")
+	if(PLATFORM STREQUAL "macos")
+		if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar")
+			message(STATUS "Downloading MoltenVK...")
+			file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.2.9/MoltenVK-macos.tar
+				"${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar" SHOW_PROGRESS)
+		endif()
+		if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK")
+			execute_process(COMMAND tar xf "${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar" --strip-components=1 MoltenVK/MoltenVK
+				WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external")
+		endif()
+		target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
+		set(MOLTENVK_DYLIB "${CMAKE_BINARY_DIR}/external/MoltenVK/dylib/macOS/libMoltenVK.dylib" PARENT_SCOPE)
 	endif()
-	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK")
-		execute_process(COMMAND tar xf "${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar" --strip-components=1 MoltenVK/MoltenVK 
-			WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external")
+	if (PLATFORM STREQUAL "OS64")
+		if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-ios.tar")
+			message(STATUS "Downloading MoltenVK...")
+			file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v${MOLTENVK_VERSION}/MoltenVK-ios.tar
+					"${CMAKE_BINARY_DIR}/external/MoltenVK-ios.tar" SHOW_PROGRESS)
+		endif()
+		if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK")
+			execute_process(COMMAND tar xf "${CMAKE_BINARY_DIR}/external/MoltenVK-ios.tar" --strip-components=1 MoltenVK/MoltenVK
+					WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external")
+		endif()
+		#uhhhh???
+		set(MOLTENVK_XCFRAMEWORK "${CMAKE_BINARY_DIR}/external/MoltenVK/static/MoltenVK.xcframework" PARENT_SCOPE)
+		set(MOLTENVK_STATICLIB "${MOLTENVK_XCFRAMEWORK}/ios-arm64/libMoltenVK.a" PARENT_SCOPE)
+		target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
+		add_library(MoltenVK STATIC IMPORTED)
+		set_target_properties(MoltenVK PROPERTIES IMPORTED_LOCATION "${MOLTENVK_STATICLIB}")
+
 	endif()
-	target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
-	set(MOLTENVK_DYLIB "${CMAKE_BINARY_DIR}/external/MoltenVK/dylib/macOS/libMoltenVK.dylib" PARENT_SCOPE)
 endif()
 
 add_library(vma INTERFACE)
@@ -436,6 +493,8 @@ target_compile_definitions(tracy PUBLIC $<$<CONFIG:Debug,RelWithDebInfo>:TRACY_E
 #
 # target_compile_definitions(tracy PUBLIC TRACY_ENABLE)
 
+
+if(NOT PLATFORM STREQUAL "OS64")	# skip nfd if ios
 # Use XDG desktop portals on Linux
 set(NFD_PORTAL ON)
 
@@ -444,3 +503,4 @@ add_subdirectory(nativefiledialog-extended)
 
 # Create alias to prevent the need of multiple changes in case the target name changes
 add_library(NFDe::NFDe ALIAS nfd)
+endif()

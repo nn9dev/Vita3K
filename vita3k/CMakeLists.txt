@@ -194,9 +194,17 @@ if(APPLE)
 	set(MACOSX_BUNDLE_GUI_IDENTIFIER "com.github.Vita3K.Vita3K")
 	set(MACOSX_BUNDLE_BUNDLE_NAME "Vita3K")
 
-	message(STATUS "MoltenVK dylib path: ${MOLTENVK_DYLIB}")
-	target_sources(vita3k PRIVATE ${MOLTENVK_DYLIB})
-	set_source_files_properties(${MOLTENVK_DYLIB} PROPERTIES MACOSX_PACKAGE_LOCATION Frameworks)
+	if(CMAKE_PLATFORM_NAME STREQUAL "Darwin")
+		message(STATUS "MoltenVK dylib path: ${MOLTENVK_DYLIB}")	#TODO: fix
+		target_sources(vita3k PRIVATE ${MOLTENVK_DYLIB})
+		set_source_files_properties(${MOLTENVK_DYLIB} PROPERTIES MACOSX_PACKAGE_LOCATION Frameworks)
+	endif()
+	if(CMAKE_PLATFORM_NAME STREQUAL "OS64")
+		message(STATUS "MoltenVK xcframework path: ${MOLTENVK_XCFRAMEWORK}")
+		target_sources(vita3k PRIVATE ${MOLTENVK_XCFRAMEWORK})	# i don't think this does anything on ios
+		target_link_libraries(vita3k PRIVATE ${MOLTENVK_STATICLIB})
+	endif()
+
 elseif(LINUX)
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath='$ORIGIN'")
 	if(BUILD_APPIMAGE)

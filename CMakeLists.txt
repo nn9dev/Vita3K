@@ -18,6 +18,7 @@ option(USE_VITA3K_UPDATE "Build Vita3K with updater." ON)
 option(BUILD_APPIMAGE "Build an AppImage." OFF)
 
 option(FORCE_BUILD_OPENSSL_MAC OFF)
+option(FORCE_BUILD_OPENSSL_IOS OFF)
 
 if("${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "")
 	find_program(CCACHE_PROGRAM ccache)
@@ -59,6 +60,18 @@ if (NOT (USE_LTO STREQUAL "NEVER"))
 		message(STATUS "IPO / LTO not supported: <${ipo_supported_error}>")
 		set(USE_LTO NEVER CACHE STRING "Use interprocedural optimization/link time optimization")
 	endif()
+endif()
+
+# If ios, include ios cmake file
+if(PLATFORM STREQUAL "iOS" OR PLATFORM STREQUAL "OS64")
+	#include(ios/ios.toolchain.cmake)
+	set(USE_DISCORD_RICH_PRESENCE OFF)
+	set(USE_VITA3K_UPDATE OFF)
+	set(FRAMEWORK_PREFIX "ios-arm64")
+	set(IOS 1)
+
+	# do ios boost
+
 endif()
 
 
@@ -149,6 +162,20 @@ macro(get_boost)
 
 			# Find Boost again to check for a existing compilation of the custom distribution
 			find_package(Boost 1.81 COMPONENTS ${BOOST_MODULES_TO_FIND} PATHS ${BOOST_INSTALLDIR} NO_DEFAULT_PATH)
+
+			message(STATUS "PLATFORM: ${PLATFORM}")
+
+			if(PLATFORM STREQUAL "OS64")
+				set(BOOST_ROOT "${CMAKE_BINARY_DIR}/ios/boost-iosx/frameworks/")
+				set(BOOST_INCLUDE_DIR "${CMAKE_BINARY_DIR}/ios/boost-iosx/frameworks/Headers")
+				set(BOOST_LIBRARYDIR ${BOOST_ROOT})
+				set(IOS_BOOST_FILESYSTEM_FRAMEWORK "${FRAMEWORK_PREFIX}/boost_filesystem.xcframework")
+				set(IOS_BOOST_FILESYSTEM_STATIC_LIB "${FRAMEWORK_PREFIX}/boost_filesystem.xcframework/$${FRAMEWORK_PREFIX}/libboost_filesystem.a")
+				set(IOS_BOOST_SYSTEM_FRAMEWORK "${FRAMEWORK_PREFIX}/boost_system.xcframework")
+				set(IOS_BOOST_SYSTEM_STATIC_LIB "${FRAMEWORK_PREFIX}/boost_system.xcframework/$${FRAMEWORK_PREFIX}/libboost_system.a")
+				set(Boost_LIBRARIES "${IOS_BOOST_FILESYSTEM_STATIC_LIB};${IOS_BOOST_SYSTEM_STATIC_LIB}")
+				set(Boost_FOUND 1)	# fuck you?? e3vil hack :3
+			endif()
 
 			# If no build of the custom distribution is found, compile it
 			if(NOT Boost_FOUND)
