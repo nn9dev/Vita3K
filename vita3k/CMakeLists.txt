@@ -129,7 +129,16 @@ add_subdirectory(gdbstub)
 add_subdirectory(packages)
 add_subdirectory(vkutil)
 
-add_executable(vita3k MACOSX_BUNDLE main.cpp interface.cpp interface.h performance.cpp)
+if(PLATFORM STREQUAL "OS64" OR PLATFORM STREQUAL "IOS")
+	#wow i really hate this a lot :)
+	string(PREPEND iosAppSrc "../")
+	string(REGEX REPLACE ";" " " iosAppSrc "${iosAppSrc}")
+	string(REPLACE " " ";../" iosAppSrc "${iosAppSrc}")
+	message(STATUS "iosAppSrc: ${iosAppSrc}")
+	add_executable(vita3k MACOSX_BUNDLE ${iosAppSrc} ../ios/appsrc/main_wrapper.cpp main.cpp interface.cpp interface.h performance.cpp)
+else()
+	add_executable(vita3k MACOSX_BUNDLE main.cpp interface.cpp interface.h performance.cpp)
+endif()
 
 if(WIN32)
 	# This file is a bit special, it is run before anything else and must be added here

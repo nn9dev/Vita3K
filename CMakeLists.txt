@@ -72,6 +72,24 @@ if(PLATFORM STREQUAL "iOS" OR PLATFORM STREQUAL "OS64")
 
 	# do ios boost
 
+	set(iosAppSrc)
+	set(iosAppLibs)
+	set(iosAppSrc ${iosAppSrc}
+			ios/appsrc/main.mm
+			ios/appsrc/AppDelegate.mm
+			ios/appsrc/AppDelegate.h
+			ios/appsrc/ViewController.mm
+			ios/appsrc/ViewController.h
+			ios/appsrc/ViewControllerMetal.mm
+			#ios/appsrc/ViewControllerMetal.h
+			#ios/appsrc/SceneDelegate.mm
+			#ios/appsrc/SceneDelegate.h
+	)
+
+	set_source_files_properties(${iosAppSrc} PROPERTIES COMPILE_FLAGS "-ObjC++ -fobjc-arc")
+	#set(nativeExtraLibs ${nativeExtraLibs} "-framework Foundation -framework MediaPlayer -framework AudioToolbox -framework CoreGraphics -framework CoreMotion -framework QuartzCore -framework UIKit -framework GLKit -framework OpenAL -framework AVFoundation -framework CoreLocation -framework CoreText -framework CoreVideo -framework CoreMedia -framework CoreServices -framework Metal -framework IOSurface" )
+	#
+
 endif()
 
 

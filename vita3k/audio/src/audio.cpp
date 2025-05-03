@@ -19,7 +19,7 @@
 
 #include <tracy/Tracy.hpp>
 
-#include <audio/impl/cubeb_audio.h>
+//#include <audio/impl/cubeb_audio.h> ///todo: remember to put this back
 #include <audio/impl/sdl_audio.h>
 
 #include <kernel/thread/thread_state.h>
@@ -102,9 +102,13 @@ void AudioState::set_backend(const std::string &adapter_name) {
     adapter.reset();
     if (adapter_name == "SDL") {
         adapter = std::make_unique<SDLAudioAdapter>(*this);
-    } else if (adapter_name == "Cubeb") {
-        adapter = std::make_unique<CubebAudioAdapter>(*this);
-    } else {
+    }
+    /*
+    else if (adapter_name == "Cubeb") {
+        adapter = std::make_unique<CubebAudioAdapter>(*this); ///todo: also fix this
+    }¬
+     */
+    else {
         LOG_ERROR("Unknown audio adapter {}", adapter_name);
         return;
     }

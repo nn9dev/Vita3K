@@ -140,6 +140,7 @@ add_library(sdl2 INTERFACE)
 target_include_directories(sdl2 INTERFACE "${SDL2_INCLUDE_DIR}")
 target_link_libraries(sdl2 INTERFACE "${SDL2_LIBRARY}")
 
+if(NOT PLATFORM STREQUAL "OS64")
 # Cubeb setup, from https://github.com/RPCS3/rpcs3/blob/master/3rdparty/cubeb/CMakeLists.txt
 set(BUILD_SHARED_LIBS FALSE CACHE BOOL "Don't build shared libs")
 set(BUILD_TESTS FALSE CACHE BOOL "Don't build tests")
@@ -160,6 +161,7 @@ elseif (ARCHITECTURE STREQUAL "x86_64")
 		_USE_SSE
 		_USE_SSE2
 	)
+endif ()
 endif ()
 
 if(WIN32)

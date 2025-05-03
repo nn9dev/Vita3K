@@ -49,6 +49,15 @@
 #include <process.h>
 #endif
 
+#ifdef __APPLE__
+    #include <TargetConditionals.h>
+    #if TARGET_OS_IOS
+        #define main alias_main
+    #else
+    #error "Unsupported platform"
+    #endif
+#endif
+
 #include <SDL.h>
 #include <chrono>
 #include <cstdlib>
