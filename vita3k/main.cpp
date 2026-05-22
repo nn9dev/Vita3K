@@ -180,10 +180,22 @@ int main(int argc, char *argv[]) {
         SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_JOY_CONS, "1");
 
         if (!SDL_Init(SDL_INIT_AUDIO | SDL_INIT_GAMEPAD | SDL_INIT_HAPTIC | SDL_INIT_SENSOR | SDL_INIT_CAMERA)) {
+sdl_init_fail:
             LOG_ERROR("SDL initialisation failed: {}", SDL_GetError());
             QMessageBox::critical(nullptr, "Error", "SDL initialisation failed.");
             return SDLInitFailed;
         }
+        // if no audio device, use dummy sdl audio device
+        int count = 0;
+                SDL_free(SDL_GetAudioPlaybackDevices(&count));
+                if (count == 0) {
+                    LOG_INFO("SDL will start with dummy audio driver.");
+                    SDL_QuitSubSystem(SDL_INIT_AUDIO);
+                    SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
+                    if(!SDL_Init(SDL_INIT_AUDIO)) {
+                        goto sdl_init_fail;
+                    }
+                }
     }
 
     LOG_INFO("{}", window_title);
