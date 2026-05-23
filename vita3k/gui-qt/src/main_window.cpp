@@ -1874,28 +1874,38 @@ void MainWindow::setup_status_bar() {
     });
     sb->addWidget(m_screen_filter_button);
 
+    auto get_backend_names = [this]() -> QStringList {
+        QStringList list;
+        for (const std::string &n : AudioBackends)
+            list.append(QString::fromStdString(n));
+        return list;
+    };
+
     m_audio_backend_button = new QPushButton(this);
     m_audio_backend_button->setObjectName(QStringLiteral("status_button"));
     m_audio_backend_button->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_audio_backend_button, &QPushButton::clicked, this, [this] {
+    connect(m_audio_backend_button, &QPushButton::clicked, this, [this, get_backend_names] {
+        const QStringList backends = get_backend_names();
+        const QString current = QString::fromStdString(emuenv.cfg.current_config.audio_backend);
+        int idx = backends.indexOf(current);
+        idx = (idx + 1) % backends.size();
         Config desired;
         copy_config_for_edit(desired, emuenv.cfg);
-        auto &cc = desired.current_config;
-        cc.audio_backend = (cc.audio_backend == "SDL") ? "Cubeb" : "SDL";
+        desired.current_config.audio_backend = backends[idx].toStdString();
         save_config(desired);
         update_audio_backend_button();
     });
-    connect(m_audio_backend_button, &QPushButton::customContextMenuRequested, this, [this](const QPoint &pos) {
+    connect(m_audio_backend_button, &QPushButton::customContextMenuRequested, this, [this, get_backend_names](const QPoint &pos) {
+        const QStringList backends = get_backend_names();
         QMenu menu(this);
-        auto *sdl_action = menu.addAction(QStringLiteral("SDL"));
-        auto *cubeb_action = menu.addAction(QStringLiteral("Cubeb"));
+        for (const auto &name : backends)
+            menu.addAction(name);
         QAction *chosen = menu.exec(m_audio_backend_button->mapToGlobal(pos));
         if (!chosen)
             return;
         Config desired;
         copy_config_for_edit(desired, emuenv.cfg);
-        auto &cc = desired.current_config;
-        cc.audio_backend = (chosen == cubeb_action) ? "Cubeb" : "SDL";
+        desired.current_config.audio_backend = chosen->text().toStdString();
         save_config(desired);
         update_audio_backend_button();
     });
@@ -2032,11 +2042,13 @@ void MainWindow::update_screen_filter_button() {
 }
 
 void MainWindow::update_audio_backend_button() {
-    const auto &backend = emuenv.cfg.current_config.audio_backend;
-    if (backend == "SDL") {
-        m_audio_backend_button->setText(QStringLiteral("SDL"));
-    } else {
+    const std::string &backend = emuenv.cfg.current_config.audio_backend;
+    if (backend == "Cubeb") {
         m_audio_backend_button->setText(QStringLiteral("CUBEB"));
+    } else if (backend.contains("Null")) {
+        m_audio_backend_button->setText(QStringLiteral("NULL"));
+    } else {
+        m_audio_backend_button->setText(QStringLiteral("SDL"));
     }
     update_status_button_accent(m_audio_backend_button, QStringLiteral("audio"));
 }

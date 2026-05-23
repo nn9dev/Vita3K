@@ -32,6 +32,7 @@
 #include <util/log.h>
 #include <util/net_utils.h>
 
+#include <SDL3/SDL_audio.h>
 #include <SDL3/SDL_camera.h>
 #include <SDL3/SDL_gamepad.h>
 
@@ -368,6 +369,12 @@ void request_in_process_launch(EmuEnvState &emuenv, AppLaunchRequest request) {
     emuenv.post_app_launch_request(std::move(request));
     if (emuenv.renderer)
         emuenv.renderer->should_display = true;
+}
+
+bool has_playback_device() {
+    int count = 0;
+    SDL_free(SDL_GetAudioPlaybackDevices(&count));
+    return (count <= 0 ? false : true);
 }
 
 } // namespace app

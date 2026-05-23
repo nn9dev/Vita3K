@@ -29,6 +29,8 @@
 #define SCE_AUDIO_OUT_MAX_VOL 32768 //!< Maximum output port volume
 #define SCE_AUDIO_VOLUME_0DB SCE_AUDIO_OUT_MAX_VOL //!< Maximum output port volume
 
+const std::vector<std::string> AudioBackends{ "SDL", "Cubeb", "Null" };
+
 struct AudioOutPort {
     virtual ~AudioOutPort() = default;
 

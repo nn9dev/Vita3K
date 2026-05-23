@@ -109,6 +109,7 @@ void prepare_game_launch_overlay(EmuEnvState &emuenv);
 bool update_runtime_metrics(EmuEnvState &emuenv, LaunchRuntimeMetrics &metrics);
 void abort_game_launch(EmuEnvState &emuenv);
 void request_in_process_launch(EmuEnvState &emuenv, AppLaunchRequest request);
+bool has_playback_device();
 
 void load_users(EmuEnvState &emuenv);
 void save_user(EmuEnvState &emuenv, const std::string &user_id);

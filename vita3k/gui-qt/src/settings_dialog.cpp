@@ -364,8 +364,18 @@ void SettingsDialog::load_config() {
     m_ui->fps_hack->setChecked(m_config.fps_hack);
 
     m_ui->audio_backend_box->clear();
-    m_ui->audio_backend_box->addItems({ QStringLiteral("SDL"), QStringLiteral("Cubeb") });
-    m_ui->audio_backend_box->setCurrentIndex(m_config.audio_backend == "Cubeb" ? 1 : 0);
+    if (!app::has_playback_device()) {
+        m_ui->audio_backend_box->addItem(QStringLiteral("Null (Forced)"));
+    } else {
+        m_ui->audio_backend_box->addItems({ QStringLiteral("SDL"), QStringLiteral("Cubeb"), QStringLiteral("Null (No Output)") });
+        if (m_config.audio_backend == "Cubeb")
+            m_ui->audio_backend_box->setCurrentIndex(1);
+        else if (m_config.audio_backend == "Null")
+            m_ui->audio_backend_box->setCurrentIndex(2);
+        else
+            m_ui->audio_backend_box->setCurrentIndex(0);
+    }
+    m_ui->audio_backend_box->setEnabled(app::has_playback_device());
 
     m_ui->audio_volume->setValue(m_config.audio_volume);
     m_ui->audio_volume_label->setText(tr("Current volume: %1%").arg(m_config.audio_volume));
@@ -599,7 +609,7 @@ void SettingsDialog::build_desired_config(Config &desired) const {
     current.shader_cache = m_ui->shader_cache->isChecked();
     current.spirv_shader = m_ui->spirv_shader->isChecked();
     current.gpu_idx = m_ui->gpu_device_box->currentIndex();
-    current.audio_backend = m_ui->audio_backend_box->currentText().toStdString();
+    current.audio_backend = AudioBackends[m_ui->audio_backend_box->currentIndex()];
     current.audio_volume = m_ui->audio_volume->value();
     current.ngs_enable = m_ui->ngs_enable->isChecked();
 
