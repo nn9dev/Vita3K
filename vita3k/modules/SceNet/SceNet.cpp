@@ -29,7 +29,7 @@
 #include <thread>
 
 #ifdef __APPLE__
-#include "macos_net_helper.h"
+#include "apple_net_helper.h"
 #include <net/if.h>
 #endif
 

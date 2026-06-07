@@ -2,9 +2,17 @@ cmake_minimum_required(VERSION 3.22)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
 	set(ANDROID 1)
+	set(MOBILE 1)
 	set(VCPKG_TARGET_ANDROID 1)
 	# this file must be included before everything else
 	include("cmake/vcpkg_android.cmake")
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+	set(IOS 1)
+	set(MOBILE 1)
+	#set(VCPKG_TARGET_IOS 1)
+	include("cmake/vcpkg_ios.cmake")
 endif()
 
 project(Vita3K)
@@ -19,7 +27,11 @@ include("external/dynarmic/CMakeModules/DetectArchitecture.cmake")
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_OSX_DEPLOYMENT_TARGET 13.3)
+if(APPLE AND NOT MOBILE)
+	set(CMAKE_OSX_DEPLOYMENT_TARGET 13.3)
+elseif(APPLE AND MOBILE)
+	set(CMAKE_OSX_DEPLOYMENT_TARGET 15.6)
+endif()
 
 # workaround for SDL due to cmake bug
 # https://github.com/libsdl-org/SDL/issues/6454
@@ -45,7 +57,7 @@ if(ANDROID)
 		set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 	endif()
 else()
-	if((ARCHITECTURE STREQUAL "x86_64") OR APPLE)
+	if((ARCHITECTURE STREQUAL "x86_64") OR (APPLE AND NOT IOS))
 		option(USE_DISCORD_RICH_PRESENCE "Build Vita3K with Discord Rich Presence" ON)
 	endif()
 endif()
@@ -150,3 +162,76 @@ endif()
 add_subdirectory(external)
 add_subdirectory(vita3k)
 add_subdirectory(tools/gen-modules)
+
+
+if(IOS)
+
+	set(codesigning_enabled "NO")
+
+	set_target_properties(vita3k PROPERTIES
+		XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED 	"${codesigning_enabled}"
+		XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED	"${codesigning_enabled}"
+		XCODE_ATTRIBUTE_CODE_SIGNING_IDENTITY	""
+	)
+
+# we're going back to building vita3k as a library but this time a shared library (dylib)
+# but at least i now have that make_modulemap.sh that can pick out all the headers I need
+# Maybe I can make an xcframework?
+
+#[[
+# generate and set the modulemap file for the project
+	execute_process(COMMAND bash ${PROJECT_SOURCE_DIR}/ios/make-modulemap.sh 
+		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+	)
+	set_target_properties(vita3k PROPERTIES
+		XCODE_ATTRIBUTE_MODULEMAP_FILE "$(SRCROOT)/../../module.modulemap"
+		XCODE_ATTRIBUTE_DEFINES_MODULE "YES"
+		XCODE_ATTRIBUTE_CLANG_ENABLE_MODULES "NO"
+		# -Wno-module-import-in-extern-c
+	)
+
+	#stupid thing i have to do because a full recursive include includes concurrentqueue's dlib which blows everything up
+set(all_includes "")
+function(collect_includes_recursive dir)
+    get_property(targets DIRECTORY ${dir} PROPERTY BUILDSYSTEM_TARGETS)
+    get_property(subdirs DIRECTORY ${dir} PROPERTY SUBDIRECTORIES)
+
+    foreach(target ${targets})
+        get_target_property(includes ${target} INTERFACE_INCLUDE_DIRECTORIES)
+        if(includes)
+            foreach(inc ${includes})
+				if(inc MATCHES "INSTALL_INTERFACE")
+    				continue()
+				endif()
+				string(REGEX MATCH "\\$<BUILD_INTERFACE:(/[^ ;,>\"]*)>" bi_match "${inc}")
+				if(bi_match)
+					set(stripped "${CMAKE_MATCH_1}")
+				else()
+					string(REGEX MATCH "/[^ ;,>\"]+" stripped "${inc}")
+				endif()
+				string(STRIP "${stripped}" stripped)
+				if(stripped)
+					list(APPEND all_includes "${stripped}")
+				endif()
+            endforeach()
+        endif()
+    endforeach()
+
+    foreach(subdir ${subdirs})
+        collect_includes_recursive(${subdir})
+    endforeach()
+
+    set(all_includes "${all_includes}" PARENT_SCOPE)
+endfunction()
+
+collect_includes_recursive("external")
+list(REMOVE_DUPLICATES all_includes)
+list(JOIN all_includes "\n" joined)
+#message(STATUS "All external includes: \n${joined}")
+
+# bonus includes:
+# "build/ios-xcode/vita3k/config/gitver.h"
+# "build/ios-xcode/vita3k/lang/generated/generated_catalog.h"
+]]
+
+endif()

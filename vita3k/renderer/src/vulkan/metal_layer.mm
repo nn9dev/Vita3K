@@ -15,9 +15,19 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+#ifdef TARGET_OS_IOS
+#import <UIKit/UIKit.h>
+#import <QuartzCore/CAMetalLayer.h>
+
+extern "C" void *get_metal_layer_from_view(void *uiview) {
+    return (__bridge void *)((__bridge UIView *)uiview).layer;
+}
+
+#elif defined TARGET_OS_OSX
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/CAMetalLayer.h>
 
 extern "C" void *get_metal_layer_from_view(void *nsview) {
     return (__bridge void *)((__bridge NSView *)nsview).layer;
 }
+#endif

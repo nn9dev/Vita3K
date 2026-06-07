@@ -57,7 +57,11 @@ endif()
 
 if(APPLE)
 	target_sources(renderer PRIVATE src/vulkan/metal_layer.mm)
-	target_link_libraries(renderer PRIVATE "-framework QuartzCore" "-framework Cocoa")
+	if(Darwin)
+		target_link_libraries(renderer PRIVATE "-framework QuartzCore" "-framework Cocoa")
+	elseif(IOS)
+		target_link_libraries(renderer PRIVATE "-framework QuartzCore" "-framework UIKit")
+	endif()
 endif()
 
 if(X11_FOUND)

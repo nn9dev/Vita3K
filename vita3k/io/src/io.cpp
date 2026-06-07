@@ -576,6 +576,10 @@ int stat_file(IOState &io, const char *file, SceIoStat *statp, const fs::path &v
     struct _stati64 sb;
     if (_wstati64(file_path.generic_wstring().c_str(), &sb) < 0)
         return IO_ERROR_UNK();
+#elif defined(__APPLE__)
+    struct stat sb;
+    if (stat(file_path.generic_path().string().c_str(), &sb) < 0)
+        return IO_ERROR_UNK();
 #else
     struct stat64 sb;
     if (stat64(file_path.generic_string().c_str(), &sb) < 0)
