@@ -102,7 +102,7 @@ if(NOT MSVC)
 	add_compile_options(-Wformat -Werror=format-security)
 endif()
 
-if(NOT ANDROID)
+if(NOT MOBILE)
 	include(${CMAKE_SOURCE_DIR}/cmake/qt6.cmake)
 endif()
 
@@ -120,7 +120,7 @@ add_subdirectory(display)
 add_subdirectory(features)
 add_subdirectory(glutil)
 add_subdirectory(updater)
-if(NOT ANDROID)
+if(NOT MOBILE)
 	add_subdirectory(gui-qt)
 endif()
 add_subdirectory(gxm)
@@ -151,26 +151,36 @@ add_subdirectory(gdbstub)
 add_subdirectory(packages)
 add_subdirectory(vkutil)
 
-if(ANDROID)
-	add_library(vita3k SHARED
-		android/jni/android_state.cpp
-		android/jni/filesystem_android.cpp
-		android/jni/main_android.cpp
-		android/jni/native_bootstrap.cpp
-		android/jni/native_config.cpp
-		android/jni/native_drivers.cpp
-		android/jni/native_users.cpp
-		android/jni/native_apps.cpp
-		android/jni/native_trophies.cpp
-		android/jni/native_install.cpp
-		android/jni/native_session.cpp
-		android/jni/input_overlay.cpp
-		android/jni/ime.cpp
-		interface.cpp
-		performance.cpp
-	)
-	target_include_directories(vita3k PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-	target_link_libraries(vita3k PRIVATE SDL3::SDL3 pugixml::pugixml android)
+if(MOBILE)
+	if(ANDROID)
+		add_library(vita3k SHARED
+			android/jni/android_state.cpp
+			android/jni/filesystem_android.cpp
+			android/jni/main_android.cpp
+			android/jni/native_bootstrap.cpp
+			android/jni/native_config.cpp
+			android/jni/native_drivers.cpp
+			android/jni/native_users.cpp
+			android/jni/native_apps.cpp
+			android/jni/native_trophies.cpp
+			android/jni/native_install.cpp
+			android/jni/native_session.cpp
+			android/jni/input_overlay.cpp
+			android/jni/ime.cpp
+			interface.cpp
+			performance.cpp
+		)
+		target_include_directories(vita3k PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+		target_link_libraries(vita3k PRIVATE SDL3::SDL3 pugixml::pugixml android)
+	elseif(IOS)
+		add_library(vita3k STATIC
+			interface.cpp
+			performance.cpp
+		)
+
+		target_include_directories(vita3k PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+		target_link_libraries(vita3k PRIVATE SDL3::SDL3 pugixml::pugixml)
+	endif()
 
 	if(CMAKE_BUILD_TYPE STREQUAL "Release")
 		# we need to exclude all symbols except SDL
@@ -204,13 +214,17 @@ else()
 	add_executable(vita3k MACOSX_BUNDLE main.cpp interface.cpp interface.h performance.cpp)
 endif()
 
+if(IOS)
+	# probably will have to add ios-specific app files here like the above does for android
+endif()
+
 if(WIN32)
 	# This file is a bit special, it is run before anything else and must be added here
 	target_sources(vita3k PRIVATE util/src/vc_runtime_checker.cpp)
 endif()
 
 target_link_libraries(vita3k PRIVATE app audio compat config cppcommon ctrl dialog display ime lang gdbstub gxm io miniz modules motion packages patch renderer shader touch util psvpfsparser)
-if(NOT ANDROID)
+if(NOT MOBILE)
 	target_link_libraries(vita3k PRIVATE gui-qt)
 endif()
 if(USE_DISCORD_RICH_PRESENCE)
@@ -221,7 +235,7 @@ if(LINUX)
 	target_link_libraries(vita3k PRIVATE -static-libgcc -static-libstdc++)
 endif()
 
-if(NOT ANDROID)
+if(NOT MOBILE)
 	file(GLOB VITA3K_QT_TS_FILES CONFIGURE_DEPENDS
 		"${CMAKE_SOURCE_DIR}/i18n/qt/*.ts")
 	set(VITA3K_QT_QM_DIR "${CMAKE_BINARY_DIR}/qt_translations")
@@ -256,14 +270,14 @@ endif()
 
 set_target_properties(vita3k PROPERTIES OUTPUT_NAME Vita3K)
 
-if(NOT ANDROID)
+if(NOT MOBILE)
 	set_target_properties(vita3k PROPERTIES
 		ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 		LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 endif()
 
-if(APPLE)
+if(APPLE AND Darwin)
 	add_custom_command(
 		OUTPUT Vita3K.icns
 		COMMAND mkdir -p Vita3K.iconset
@@ -322,6 +336,50 @@ if(APPLE)
 		TARGET vita3k
 		POST_BUILD
 		COMMAND codesign --force --deep --preserve-metadata=entitlements,requirements,flags,runtime --sign - "$<TARGET_FILE_DIR:vita3k>/../..")
+elseif(APPLE AND IOS)
+    # iOS uses AppIcon asset catalog instead of .icns
+    # Generate the icon at various sizes into an asset catalog
+    set(ICONSET_DIR "${CMAKE_CURRENT_BINARY_DIR}/AppIcon.appiconset")
+    add_custom_command(
+        OUTPUT "${ICONSET_DIR}/Contents.json"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${ICONSET_DIR}"
+        COMMAND sips -z 20 20     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_20x20.png"
+        COMMAND sips -z 40 40     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_20x20@2x.png"
+        COMMAND sips -z 60 60     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_20x20@3x.png"
+        COMMAND sips -z 29 29     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_29x29.png"
+        COMMAND sips -z 58 58     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_29x29@2x.png"
+        COMMAND sips -z 87 87     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_29x29@3x.png"
+        COMMAND sips -z 76 76     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_76x76.png"
+        COMMAND sips -z 152 152   "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_76x76@2x.png"
+        COMMAND sips -z 167 167   "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_83.5x83.5@2x.png"
+        COMMAND sips -z 120 120   "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_60x60@2x.png"
+        COMMAND sips -z 180 180   "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_60x60@3x.png"
+        COMMAND sips -z 1024 1024 "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_1024x1024.png"
+        COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/AppIcon-Contents.json" "${ICONSET_DIR}/Contents.json"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" "${CMAKE_CURRENT_SOURCE_DIR}/AppIcon-Contents.json"
+	)
+
+    target_sources(vita3k PRIVATE "${ICONSET_DIR}/Contents.json")
+    set_source_files_properties("${ICONSET_DIR}/Contents.json"
+        PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/AppIcon.appiconset")
+
+	#[[
+    # Copy data directory into bundle root (no Resources/ subdirectory on iOS)
+    add_custom_command(
+        TARGET vita3k
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/../data" "$<TARGET_BUNDLE_CONTENT_DIR:vita3k>/data"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/shaders-builtin/" "$<TARGET_BUNDLE_CONTENT_DIR:vita3k>/shaders-builtin")
+	#]]
+    # embed MoltenVK xcframework (no dylib on iOS)
+	message(STATUS "MoltenVK xcframework path: ${MOLTENVK_XCFRAMEWORK}")
+    set_target_properties(vita3k PROPERTIES
+    	XCODE_ATTRIBUTE_FRAMEWORK_SEARCH_PATHS "${CMAKE_BINARY_DIR}/external/MoltenVK/dynamic"
+    	XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "15.6"
+    	XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+	)
+target_link_libraries(vita3k PRIVATE "${MOLTENVK_XCFRAMEWORK}")
+
 elseif(LINUX)
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath='$ORIGIN'")
 	if(BUILD_APPIMAGE)

@@ -207,6 +207,37 @@
       "displayName": "macOS with Xcode",
       "description": "Linux native build using Xcode generator and default compiler",
       "generator": "Xcode"
+    },
+    {
+      "name": "ios",
+      "inherits": "base",
+      "displayName": "iOS default",
+      "description": "iOS native build using default generator and default compiler",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "USE_DISCORD_RICH_PRESENCE": false,
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "arm64-ios"
+      }
+    },
+    {
+      "name": "ios-ninja",
+      "inherits": "ios",
+      "displayName": "iOS with Ninja",
+      "description": "macOS native build using Ninja Multi-Config generator and default compiler",
+      "generator": "Ninja Multi-Config"
+    },
+    {
+      "name": "ios-xcode",
+      "inherits": "ios",
+      "displayName": "iOS with Xcode",
+      "description": "iOS native build using Xcode generator and default compiler",
+      "generator": "Xcode"
     }
   ],
   "buildPresets": [
@@ -394,6 +425,48 @@
     },
     {
       "name": "macos-xcode-release",
+      "displayName": "Release",
+      "description": "Build with compiler optimizations enabled and no debugging information",
+      "configuration": "Release",
+      "configurePreset": "macos-xcode"
+    },
+    {
+      "name": "ios-ninja-debug",
+      "displayName": "Debug",
+      "description": "Build with debugging information and no compiler optimizations",
+      "configuration": "Debug",
+      "configurePreset": "ios-ninja"
+    },
+    {
+      "name": "ios-ninja-relwithdebinfo",
+      "displayName": "Release with debugging information",
+      "description": "Build with compiler optimizations enabled and limited debugging information",
+      "configuration": "RelWithDebInfo",
+      "configurePreset": "ios-ninja"
+    },
+    {
+      "name": "ios-ninja-release",
+      "displayName": "Release",
+      "description": "Build with compiler optimizations enabled and no debugging information",
+      "configuration": "Release",
+      "configurePreset": "ios-ninja"
+    },
+    {
+      "name": "ios-xcode-debug",
+      "displayName": "Debug",
+      "description": "Build with debugging information and no compiler optimizations",
+      "configuration": "Debug",
+      "configurePreset": "ios-xcode"
+    },
+    {
+      "name": "ios-xcode-relwithdebinfo",
+      "displayName": "Release with debugging information",
+      "description": "Build with compiler optimizations enabled and limited debugging information",
+      "configuration": "RelWithDebInfo",
+      "configurePreset": "ios-xcode"
+    },
+    {
+      "name": "ios-xcode-release",
       "displayName": "Release",
       "description": "Build with compiler optimizations enabled and no debugging information",
       "configuration": "Release",
