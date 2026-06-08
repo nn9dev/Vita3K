@@ -176,6 +176,9 @@ if(MOBILE)
 		add_library(vita3k STATIC
 			interface.cpp
 			performance.cpp
+			platform_api.h
+			platform_api.cpp
+			#ios/ios_init.mm
 		)
 
 		target_include_directories(vita3k PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -339,6 +342,7 @@ if(APPLE AND NOT IOS)
 elseif(APPLE AND IOS)
     # iOS uses AppIcon asset catalog instead of .icns
     # Generate the icon at various sizes into an asset catalog
+	#[[
     set(ICONSET_DIR "${CMAKE_CURRENT_BINARY_DIR}/AppIcon.appiconset")
     add_custom_command(
         OUTPUT "${ICONSET_DIR}/Contents.json"
@@ -363,7 +367,7 @@ elseif(APPLE AND IOS)
     set_source_files_properties("${ICONSET_DIR}/Contents.json"
         PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/AppIcon.appiconset")
 
-	#[[
+
     # Copy data directory into bundle root (no Resources/ subdirectory on iOS)
     add_custom_command(
         TARGET vita3k

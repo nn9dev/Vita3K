@@ -17,7 +17,7 @@
 
 #include "apple_net_helper.h"
 
-#include <SystemConfiguration/SystemConfiguration.h>
+#include <Network/Network.h>  // nw_path, nw_interface
 #include <cstring>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -28,46 +28,42 @@ bool is_physical_interface(const char *name) {
     return name && strncmp(name, "en", 2) == 0;
 }
 
-// Get the primary network interface name using SystemConfiguration
+// On iOS, SCDynamicStore is unavailable.
+// We walk ifaddrs and return the first active en* interface with an IPv4
+// or IPv6 address — on a real device this is almost always en0 (Wi-Fi).
 bool get_primary_interface_name(char *dest, size_t bufferSize) {
+    struct ifaddrs *iflist = nullptr;
+    if (getifaddrs(&iflist) != 0)
+        return false;
+
     bool success = false;
-    auto size = static_cast<CFIndex>(bufferSize);
 
-    if (size < 0) [[unlikely]] // Overflow from size_t to CFIndex (practically unreachable)
-        return false;
+    for (struct ifaddrs *cur = iflist; cur; cur = cur->ifa_next) {
+        if (!cur->ifa_name || !cur->ifa_addr)
+            continue;
+        if (!(cur->ifa_flags & IFF_UP) || (cur->ifa_flags & IFF_LOOPBACK))
+            continue;
 
-    auto store = SCDynamicStoreCreate(nullptr, CFSTR("Vita3K"), nullptr, nullptr);
-    if (!store)
-        return false;
+        const sa_family_t family = cur->ifa_addr->sa_family;
+        if (family != AF_INET && family != AF_INET6)
+            continue;
+        if (!is_physical_interface(cur->ifa_name))
+            continue;
 
-    // Try IPv4 first
-    auto dict = static_cast<CFDictionaryRef>(SCDynamicStoreCopyValue(store, CFSTR("State:/Network/Global/IPv4")));
-    if (dict) {
-        auto iface = static_cast<CFStringRef>(CFDictionaryGetValue(dict, CFSTR("PrimaryInterface")));
-        if (iface && CFStringGetCString(iface, dest, size, kCFStringEncodingUTF8)) {
+        if (strlcpy(dest, cur->ifa_name, bufferSize) < bufferSize) {
             success = true;
-        }
-        CFRelease(dict);
-    }
-
-    // Fallback to IPv6
-    if (!success) {
-        dict = static_cast<CFDictionaryRef>(SCDynamicStoreCopyValue(store, CFSTR("State:/Network/Global/IPv6")));
-        if (dict) {
-            auto iface = static_cast<CFStringRef>(CFDictionaryGetValue(dict, CFSTR("PrimaryInterface")));
-            if (iface && CFStringGetCString(iface, dest, size, kCFStringEncodingUTF8)) {
-                success = true;
-            }
-            CFRelease(dict);
+            break;
         }
     }
 
-    CFRelease(store);
+    freeifaddrs(iflist);
     return success;
 }
 
-// Get MAC address from a physical interface
-// If hint is a physical interface, use it; otherwise find first active en*
+// Identical logic to the macOS version — getifaddrs + sockaddr_dl works on
+// iOS, but the OS zeroes the MAC bytes (returns 02:00:00:00:00:00) since iOS 7.
+// Kept for API compatibility; callers should use identifierForVendor instead
+// if a persistent unique ID is actually needed.
 bool get_mac_address(const char *hint, uint8_t mac[6]) {
     struct ifaddrs *iflist = nullptr;
     if (getifaddrs(&iflist) != 0)
@@ -85,8 +81,6 @@ bool get_mac_address(const char *hint, uint8_t mac[6]) {
             continue;
         if (!is_physical_interface(cur->ifa_name))
             continue;
-
-        // If we have a target, only match that; otherwise take first
         if (target && strcmp(cur->ifa_name, target) != 0)
             continue;
 

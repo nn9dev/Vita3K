@@ -217,10 +217,17 @@ set(SOURCE_LIST
 )
 
 if(APPLE)
-    list(APPEND SOURCE_LIST
-        SceNet/macos_net_helper.h
-        SceNet/macos_net_helper.cpp
-    )
+	if(NOT IOS)
+		list(APPEND SOURCE_LIST
+			SceNet/apple_net_helper.h
+			SceNet/macos_net_helper.cpp
+		)
+	else()
+		list(APPEND SOURCE_LIST
+			SceNet/apple_net_helper.h
+			SceNet/ios_net_helper.mm
+    	)
+	endif()
 endif()
 
 add_library(modules STATIC ${SOURCE_LIST})

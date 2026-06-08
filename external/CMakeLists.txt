@@ -85,27 +85,29 @@ target_include_directories(miniz PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/miniz")
 
 add_subdirectory(sdl)
 
-# Cubeb setup, from https://github.com/RPCS3/rpcs3/blob/master/3rdparty/cubeb/CMakeLists.txt
-set(BUILD_SHARED_LIBS FALSE CACHE BOOL "Don't build shared libs")
-set(BUILD_TESTS FALSE CACHE BOOL "Don't build tests")
-set(BUILD_RUST_LIBS FALSE CACHE BOOL "Don't build rust libs")
-set(BUILD_TOOLS FALSE CACHE BOOL "Don't build tools")
-set(BUNDLE_SPEEX TRUE CACHE BOOL "Bundle the speex library")
-set(LAZY_LOAD_LIBS TRUE CACHE BOOL "Lazily load shared libraries")
-set(USE_SANITIZERS FALSE CACHE BOOL "Dont't use sanitizers")
+if(NOT IOS)
+	# Cubeb setup, from https://github.com/RPCS3/rpcs3/blob/master/3rdparty/cubeb/CMakeLists.txt
+	set(BUILD_SHARED_LIBS FALSE CACHE BOOL "Don't build shared libs")
+	set(BUILD_TESTS FALSE CACHE BOOL "Don't build tests")
+	set(BUILD_RUST_LIBS FALSE CACHE BOOL "Don't build rust libs")
+	set(BUILD_TOOLS FALSE CACHE BOOL "Don't build tools")
+	set(BUNDLE_SPEEX TRUE CACHE BOOL "Bundle the speex library")
+	set(LAZY_LOAD_LIBS TRUE CACHE BOOL "Lazily load shared libraries")
+	set(USE_SANITIZERS FALSE CACHE BOOL "Dont't use sanitizers")
 
-add_subdirectory(cubeb EXCLUDE_FROM_ALL)
+	add_subdirectory(cubeb EXCLUDE_FROM_ALL)
 
-if (ARCHITECTURE STREQUAL "arm64")
-	target_compile_definitions(speex PUBLIC
-		#_USE_NEON
-	)
-elseif (ARCHITECTURE STREQUAL "x86_64")
-	target_compile_definitions(speex PUBLIC
-		_USE_SSE
-		_USE_SSE2
-	)
-endif ()
+	if (ARCHITECTURE STREQUAL "arm64")
+		target_compile_definitions(speex PUBLIC
+			#_USE_NEON
+		)
+	elseif (ARCHITECTURE STREQUAL "x86_64")
+		target_compile_definitions(speex PUBLIC
+			_USE_SSE
+			_USE_SSE2
+		)
+	endif ()
+endif()
 
 if(ANDROID)
 	if(ARCHITECTURE STREQUAL "arm64")
@@ -144,7 +146,7 @@ option(YAML_CPP_BUILD_TOOLS "Enable parse tools" OFF)
 option(YAML_CPP_BUILD_CONTRIB "Enable contrib stuff in library" OFF)
 add_subdirectory(yaml-cpp EXCLUDE_FROM_ALL)
 
-if(USE_DISCORD_RICH_PRESENCE)
+if(USE_DISCORD_RICH_PRESENCE) #ios does not need this
 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/discord_game_sdk.zip")
 		message(STATUS "Downloading discord gamesdk...")
 		file(DOWNLOAD https://dl-game-sdk.discordapp.net/latest/discord_game_sdk.zip
@@ -225,9 +227,9 @@ target_include_directories(CLI11 INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/cli11")
 
 add_library(vulkan INTERFACE)
 target_include_directories(vulkan INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator-Hpp/Vulkan-Headers/include")
-if(APPLE)
+if(APPLE AND Darwin)
 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar")
-		message(STATUS "Downloading MoltenVK...")
+		message(STATUS "Downloading MoltenVK for macOS...")
 		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.2.11-artifacts/MoltenVK-macos.tar
 			"${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar" SHOW_PROGRESS)
 	endif()
@@ -237,6 +239,20 @@ if(APPLE)
 	endif()
 	target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
 	set(MOLTENVK_DYLIB "${CMAKE_BINARY_DIR}/external/MoltenVK/dylib/macOS/libMoltenVK.dylib" PARENT_SCOPE)
+	message(STATUS "Using MoltenVK dylib \(macOS\)")
+elseif(APPLE AND IOS) #ios
+	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-ios.tar")
+		message(STATUS "Downloading MoltenVK for iOS...")
+		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-ios.tar
+			"${CMAKE_BINARY_DIR}/external/MoltenVK-ios.tar" SHOW_PROGRESS)
+	endif()
+	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK")
+		execute_process(COMMAND tar xf "${CMAKE_BINARY_DIR}/external/MoltenVK-ios.tar" --strip-components=1 MoltenVK/MoltenVK 
+			WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external")
+	endif()
+	target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
+	set(MOLTENVK_XCFRAMEWORK "${CMAKE_BINARY_DIR}/external/MoltenVK/dynamic/MoltenVK.xcframework" PARENT_SCOPE)
+	message(STATUS "Using MoltenVK xcframework (iOS)")
 elseif(ANDROID AND NOT (CMAKE_BUILD_TYPE STREQUAL "Release"))
 	# add validation layer
 	if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../android/prebuilt/${ANDROID_ABI}/libVkLayer_khronos_validation.so")
@@ -267,9 +283,10 @@ target_include_directories(vma INTERFACE
 if(ANDROID)
 	set(USE_STATIC_ANDROID_FFMPEG ON)
 endif()
+# might need to add ios here? MARK
 add_subdirectory(ffmpeg)
 
-if(APPLE OR NOT FORCE_BUILD_OPENSSL_MAC)
+if(APPLE OR NOT FORCE_BUILD_OPENSSL_MAC AND NOT IOS)
 	execute_process(
 		COMMAND brew --prefix openssl
 		RESULT_VARIABLE BREW_RESULT
@@ -281,6 +298,50 @@ if(APPLE OR NOT FORCE_BUILD_OPENSSL_MAC)
 		set(OPENSSL_USE_STATIC_LIBS TRUE)
 	endif()
 endif()
+
+#[[
+if(IOS)
+    # Download and use prebuilt OpenSSL.xcframework for iOS
+    if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/OpenSSL.xcframework.zip")
+        message(STATUS "Downloading OpenSSL.xcframework for iOS...")
+        file(DOWNLOAD
+            "https://github.com/krzyzanowskim/OpenSSL/releases/download/3.6.2000/OpenSSL.xcframework.zip"
+            "${CMAKE_BINARY_DIR}/external/OpenSSL.xcframework.zip"
+            SHOW_PROGRESS)
+    endif()
+
+    if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/OpenSSL.xcframework")
+        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/external/OpenSSL.xcframework_extract")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -E tar xf "${CMAKE_BINARY_DIR}/external/OpenSSL.xcframework.zip"
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external/OpenSSL.xcframework_extract")
+        file(RENAME
+            "${CMAKE_BINARY_DIR}/external/OpenSSL.xcframework_extract/OpenSSL.xcframework"
+            "${CMAKE_BINARY_DIR}/external/OpenSSL.xcframework")
+    endif()
+
+    # The xcframework slice for iOS devices is ios-arm64
+    set(OPENSSL_XCF_ROOT "${CMAKE_BINARY_DIR}/external/OpenSSL.xcframework")
+    set(OPENSSL_IOS_SLICE "${OPENSSL_XCF_ROOT}/ios-arm64/OpenSSL.framework")
+
+    # create imported targets for later
+    add_library(OpenSSL::SSL STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::SSL PROPERTIES
+        IMPORTED_LOCATION "${OPENSSL_IOS_SLICE}/OpenSSL"
+        INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_IOS_SLICE}/Headers")
+    add_library(OpenSSL::Crypto STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::Crypto PROPERTIES
+        IMPORTED_LOCATION "${OPENSSL_IOS_SLICE}/OpenSSL"
+        INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_IOS_SLICE}/Headers")
+
+    set(OPENSSL_FOUND TRUE)
+    set(OPENSSL_INCLUDE_DIR "${OPENSSL_IOS_SLICE}/Headers")
+    set(OPENSSL_LIBRARIES "${OPENSSL_IOS_SLICE}/OpenSSL")
+
+    message("OpenSSL (xcframework, iOS) include dir: ${OPENSSL_INCLUDE_DIR}")
+    message("OpenSSL (xcframework, iOS) libraries: ${OPENSSL_LIBRARIES}")
+endif()
+]]
 
 if(NOT FORCE_BUILD_OPENSSL_MAC)
 	find_package(OpenSSL QUIET)
@@ -305,6 +366,10 @@ if(NOT OPENSSL_FOUND OR FORCE_BUILD_OPENSSL_MAC)
 		set(OPENSSL_ROOT_DIR "${CMAKE_BINARY_DIR}/external/openssl/x64" CACHE STRING "Path to OpenSSL root")
 	elseif(APPLE)
 		message(STATUS "OpenSSL not found.")
+		if(IOS)
+			message(ERROR "iOS OpenSSL FAIL!?!?")
+			exit()
+		endif()
 		if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/openssl.tar.gz")
 			message(STATUS "Downloading OpenSSL@3 from source...")
 			file(DOWNLOAD https://github.com/openssl/openssl/releases/download/openssl-3.3.2/openssl-3.3.2.tar.gz
@@ -319,7 +384,7 @@ if(NOT OPENSSL_FOUND OR FORCE_BUILD_OPENSSL_MAC)
 
 		if (NOT EXISTS "${CMAKE_BINARY_DIR}/external/openssl/libssl.a" OR NOT EXISTS "${CMAKE_BINARY_DIR}/external/openssl/libcrypto.a")
 			message(STATUS "Building OpenSSL@3...")
-			if (ARCHITECTURE STREQUAL "x86_64" OR ARCHITECTURE STREQUAL "arm64")
+			if (DARWIN AND ARCHITECTURE STREQUAL "x86_64" OR ARCHITECTURE STREQUAL "arm64")
 				execute_process(COMMAND perl Configure darwin64-${ARCHITECTURE} -mmacosx-version-min=11 WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external/openssl")
 				execute_process(COMMAND make -j${CPU_COUNT} WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external/openssl" OUTPUT_QUIET)
 			else()
@@ -452,7 +517,7 @@ endif()
 # Use XDG desktop portals on Linux
 set(NFD_PORTAL ON)
 
-if(NOT ANDROID)
+if(NOT MOBILE)
 	# nativefiledialog-extended
 	add_subdirectory(nativefiledialog-extended)
 

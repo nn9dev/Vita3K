@@ -309,3 +309,7 @@ endif()
 add_subdirectory(external)
 add_subdirectory(vita3k)
 add_subdirectory(tools/gen-modules)
+
+#if(IOS)
+#	add_subdirectory(ios)
+#endif()
