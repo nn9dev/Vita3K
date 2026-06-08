@@ -277,7 +277,7 @@ if(NOT MOBILE)
 		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 endif()
 
-if(APPLE AND Darwin)
+if(APPLE AND NOT IOS)
 	add_custom_command(
 		OUTPUT Vita3K.icns
 		COMMAND mkdir -p Vita3K.iconset

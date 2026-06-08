@@ -17,7 +17,9 @@
 
 #include <audio/state.h>
 
+#ifndef TARGET_OS_IOS
 #include <audio/impl/cubeb_audio.h>
+#endif
 #include <audio/impl/sdl_audio.h>
 
 #include <util/log.h>
@@ -71,7 +73,9 @@ void AudioState::set_backend(const std::string &adapter_name) {
     if (adapter_name == "SDL") {
         adapter = std::make_unique<SDLAudioAdapter>(*this);
     } else if (adapter_name == "Cubeb") {
+#ifndef TARGET_OS_IOS
         adapter = std::make_unique<CubebAudioAdapter>(*this);
+#endif
     } else {
         LOG_ERROR("Unknown audio adapter {}", adapter_name);
         return;
