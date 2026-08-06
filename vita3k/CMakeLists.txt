@@ -172,47 +172,65 @@ if(MOBILE)
 		)
 		target_include_directories(vita3k PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 		target_link_libraries(vita3k PRIVATE SDL3::SDL3 pugixml::pugixml android)
+
+		if(CMAKE_BUILD_TYPE STREQUAL "Release")
+			# we need to exclude all symbols except SDL
+			set(LIBS_TO_EXCLUDE
+				"libboost_atomic.a"
+				"libboost_container.a"
+				"libboost_date_time.a"
+				"libboost_exception.a"
+				"libboost_filesystem.a"
+				"libboost_program_options.a"
+				"libboost_regex.a"
+				"libboost_system.a"
+				"libssl.a"
+				"libfmt.a"
+				"libcrypto.a"
+				"libavcodec.a"
+				"libavdevice.a"
+				"libavfilter.a"
+				"libavformat.a"
+				"libavutil.a"
+				"libswresample.a"
+				"libswscale.a"
+				)
+			set(LIBS_TO_EXCLUDE_FLAG "")
+			foreach(lib IN LISTS LIBS_TO_EXCLUDE)
+				string(APPEND LIBS_TO_EXCLUDE_FLAG " -Wl,--exclude-libs,${lib}")
+			endforeach()
+			set_target_properties(vita3k PROPERTIES LINK_FLAGS "${LIBS_TO_EXCLUDE_FLAG}")
+		endif()
 	elseif(IOS)
-		add_library(vita3k STATIC
+		add_library(vita3k SHARED
+			interface.h
 			interface.cpp
 			performance.cpp
-			platform_api.h
-			platform_api.cpp
+			#platform_api.h
+			#platform_api.cpp
+			#core/api.h
+			#core/api.cpp
 			#ios/ios_init.mm
 		)
 
 		target_include_directories(vita3k PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 		target_link_libraries(vita3k PRIVATE SDL3::SDL3 pugixml::pugixml)
+
+		set_target_properties(vita3k PROPERTIES
+			FRAMEWORK TRUE
+  			MACOSX_FRAMEWORK_IDENTIFIER org.vita3k.dylib
+			#MACOSX_FRAMEWORK_INFO_PLIST Info.plist # leaving this undeclared generates a basic info.plist
+			# "current version" in semantic format in Mach-O binary file
+			VERSION "${VITA3K_APP_VER_HI}.${VITA3K_APP_VER_MID}.${VITA3K_APP_VER_LO}"
+			# "compatibility version" in semantic format in Mach-O binary file
+			SOVERSION "${VITA3K_APP_VER_HI}.${VITA3K_APP_VER_MID}.${VITA3K_APP_VER_LO}"
+			# need to list all the headers?
+			PUBLIC_HEADER interface.h
+		)
 	endif()
 
-	if(CMAKE_BUILD_TYPE STREQUAL "Release")
-		# we need to exclude all symbols except SDL
-		set(LIBS_TO_EXCLUDE
-			"libboost_atomic.a"
-			"libboost_container.a"
-			"libboost_date_time.a"
-			"libboost_exception.a"
-			"libboost_filesystem.a"
-			"libboost_program_options.a"
-			"libboost_regex.a"
-			"libboost_system.a"
-			"libssl.a"
-			"libfmt.a"
-			"libcrypto.a"
-			"libavcodec.a"
-			"libavdevice.a"
-			"libavfilter.a"
-			"libavformat.a"
-			"libavutil.a"
-			"libswresample.a"
-			"libswscale.a"
-			)
-		set(LIBS_TO_EXCLUDE_FLAG "")
-		foreach(lib IN LISTS LIBS_TO_EXCLUDE)
-			string(APPEND LIBS_TO_EXCLUDE_FLAG " -Wl,--exclude-libs,${lib}")
-		endforeach()
-		set_target_properties(vita3k PROPERTIES LINK_FLAGS "${LIBS_TO_EXCLUDE_FLAG}")
-	endif()
+	#iOS builds as a shared library, no need to exclude libs like android (?)
+
 else()
 	add_executable(vita3k MACOSX_BUNDLE main.cpp interface.cpp interface.h performance.cpp)
 endif()

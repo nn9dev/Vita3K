@@ -240,7 +240,7 @@ if(APPLE AND Darwin)
 	target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
 	set(MOLTENVK_DYLIB "${CMAKE_BINARY_DIR}/external/MoltenVK/dylib/macOS/libMoltenVK.dylib" PARENT_SCOPE)
 	message(STATUS "Using MoltenVK dylib \(macOS\)")
-elseif(APPLE AND IOS) #ios
+elseif(APPLE AND IOS) # use the xcframework for iOS since iOS doesn't like the raw dylib much
 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-ios.tar")
 		message(STATUS "Downloading MoltenVK for iOS...")
 		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-ios.tar
