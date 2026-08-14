@@ -93,12 +93,13 @@ KernelState::KernelState()
     : debugger(*this) {
 }
 
-bool KernelState::init(MemState &mem, const CallImportFunc &call_import, bool cpu_opt) {
+bool KernelState::init(MemState &mem, const CallImportFunc &call_import, bool cpu_opt, CPUBackend cpu_backend) {
     corenum_allocator.set_max_core_count(MAX_CORE_COUNT);
     start_tick = rtc_get_ticks(rtc_base_ticks());
     base_tick = { rtc_base_ticks() };
     this->call_import = call_import;
     this->cpu_opt = cpu_opt;
+    this->cpu_backend = cpu_backend;
 
     // Generate halt instruction (NOP + WFI)
     halt_instruction = alloc_block(mem, 4, "halt_instruction");
@@ -178,7 +179,7 @@ ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<c
         LOG_ERROR("Out of core number to allocate, use 0");
         core_num = 0;
     }
-    CPUStatePtr cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);
+    CPUStatePtr cpu = init_cpu(cpu_backend, cpu_opt, id, static_cast<std::size_t>(core_num), mem);
     if (!cpu)
         return nullptr;
     ThreadStatePtr thread = std::make_shared<ThreadState>(id, *this, mem, std::move(cpu), name, entry_point.address(), init_priority, affinity_mask, stack_size, attr, option);
