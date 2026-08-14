@@ -136,6 +136,7 @@ struct KernelState {
     ModuleUidByNid module_uid_by_nid;
 
     bool cpu_opt;
+    CPUBackend cpu_backend = CPUBackend::Dynarmic;
     CorenumAllocator corenum_allocator;
     CallImportFunc call_import;
 
@@ -163,7 +164,7 @@ struct KernelState {
         return next_uid++;
     }
 
-    bool init(MemState &mem, const CallImportFunc &call_import, bool cpu_opt);
+    bool init(MemState &mem, const CallImportFunc &call_import, bool cpu_opt, CPUBackend cpu_backend);
     void deinit(MemState &mem);
     void load_process_param(MemState &mem, Ptr<uint32_t> ptr);
     ThreadStatePtr create_thread(MemState &mem, const char *name, Ptr<const void> entry_point = Ptr<const void>(0));

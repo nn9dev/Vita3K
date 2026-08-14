@@ -416,7 +416,12 @@ static ExitCode load_app_impl(SceUID &main_module_id, EmuEnvState &emuenv, const
     emuenv.kernel.process_exit_callback = [&emuenv](int res, std::optional<AppLaunchRequest> relaunch) {
         emuenv.post_app_launch_request(relaunch.value_or(AppLaunchRequest{ .reason = AppLaunchReason::ProcessExit }));
     };
-    if (!emuenv.kernel.init(emuenv.mem, call_import, emuenv.cfg.current_config.cpu_opt)) {
+    //const CPUBackend cpu_backend = (emuenv.cfg.cpu_backend == "Arm_DynCom")
+    //    ? CPUBackend::ArmDynCom
+    //    : CPUBackend::Dynarmic;
+    // force arm_dyncom for now
+    const CPUBackend cpu_backend = CPUBackend::ArmDynCom;
+    if (!emuenv.kernel.init(emuenv.mem, call_import, emuenv.cfg.current_config.cpu_opt, cpu_backend)) {
         LOG_WARN("Failed to init kernel!");
         return KernelInitFailed;
     }

@@ -88,12 +88,13 @@ KernelState::KernelState()
     : debugger(*this) {
 }
 
-bool KernelState::init(MemState &mem, const CallImportFunc &call_import, bool cpu_opt) {
+bool KernelState::init(MemState &mem, const CallImportFunc &call_import, bool cpu_opt, CPUBackend cpu_backend) {
     corenum_allocator.set_max_core_count(MAX_CORE_COUNT);
     start_tick = rtc_get_ticks(rtc_base_ticks());
     base_tick = { rtc_base_ticks() };
     this->call_import = call_import;
     this->cpu_opt = cpu_opt;
+    this->cpu_backend = cpu_backend;
 
     // Generate halt instruction (NOP + WFI)
     halt_instruction = alloc_block(mem, 4, "halt_instruction");

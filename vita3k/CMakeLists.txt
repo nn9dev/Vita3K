@@ -202,18 +202,56 @@ if(MOBILE)
 			set_target_properties(vita3k PROPERTIES LINK_FLAGS "${LIBS_TO_EXCLUDE_FLAG}")
 		endif()
 	elseif(IOS)
+		# There's a whole header dance we have to do in order to build as a
+		# framework. Basically, even if it's already been included somewhere
+		# else, if you want to be able to add the header to 
+		# MACOSX_PACKAGE_LOCATION/Headers, it also needs to be a direct source
+		# file of whatever the target building as a framework is.
+		# (TODO (dog): this might only apply to items using PUBLIC_HEADER?)
+		# So below we do just that, collect every header that gets compiled
+		# into any part of the project, add it to `vita3k`, then do 
+		# ANOTHER fun little dance to present the headers in the correct
+		# structure inside the produced Headers directory
+
+		# glob for files in vita3k/
+		file(GLOB_RECURSE FRAMEWORK_HEADER_GLOB
+			"${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+			"${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
+			"${CMAKE_CURRENT_SOURCE_DIR}/*.inc"
+		)
+
+		list(FILTER FRAMEWORK_HEADER_GLOB EXCLUDE REGEX "\/gui-qt\/|\/android\/|\/ios\/|platform_api\.h$")
+		list(APPEND FRAMEWORK_PUBLIC_HEADERS  ${FRAMEWORK_HEADER_GLOB})
+		
+		set(FRAMEWORK_HEADER_GLOB "")
+		# bonus glob for files in vcpkg_installed/{vcpkg_arch}/include/
+		# this is needed for boost, curl, etc. that gets installed thru vcpkg
+		file(GLOB_RECURSE FRAMEWORK_HEADER_GLOB
+			"${CMAKE_SOURCE_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/*.h"
+			"${CMAKE_SOURCE_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/*.hpp"
+		)
+
+		LIST(APPEND FRAMEWORK_VCPKG_PUBLIC_HEADERS  ${FRAMEWORK_HEADER_GLOB})
+		#LIST(APPEND FRAMEWORK_PUBLIC_HEADERS  ${FRAMEWORK_VCPKG_PUBLIC_HEADERS})
+
 		add_library(vita3k SHARED
+			"${FRAMEWORK_PUBLIC_HEADERS}"
 			interface.h
 			interface.cpp
 			performance.cpp
 			#platform_api.h
 			#platform_api.cpp
-			#core/api.h
-			#core/api.cpp
+			core/api.h
+			core/api.cpp
 			#ios/ios_init.mm
 		)
 
 		target_include_directories(vita3k PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+		#target_sources(vita3k
+		#	PUBLIC FILE_SET public_headers
+		#		TYPE HEADERS
+		#		FILES "${FRAMEWORK_PUBLIC_HEADERS}"
+		#)
 		target_link_libraries(vita3k PRIVATE SDL3::SDL3 pugixml::pugixml)
 
 		set_target_properties(vita3k PROPERTIES
@@ -224,9 +262,40 @@ if(MOBILE)
 			VERSION "${VITA3K_APP_VER_HI}.${VITA3K_APP_VER_MID}.${VITA3K_APP_VER_LO}"
 			# "compatibility version" in semantic format in Mach-O binary file
 			SOVERSION "${VITA3K_APP_VER_HI}.${VITA3K_APP_VER_MID}.${VITA3K_APP_VER_LO}"
-			# need to list all the headers?
-			PUBLIC_HEADER interface.h
+			#PUBLIC_HEADER "${FRAMEWORK_PUBLIC_HEADERS}"
 		)
+		# if we don't do this then the resulting framework will not recognize its own headers
+		target_include_directories(vita3k
+			PUBLIC
+			"$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/Vita3K.framework/Headers>"
+		)
+		#target_include_directories(vita3k PUBLIC "$(CONFIGURATION_BUILD_DIR)/Vita3K.framework/Headers")
+
+		##[[
+		# this is the afforementioned "another fun little dance" for Headers/
+		# Place each header into Headers/<subdir>/ preserving directory structure
+		# This avoids the flat-copy conflicts that come from specifying files with PUBLIC_HEADER
+		foreach(HEADER ${FRAMEWORK_PUBLIC_HEADERS})
+			file(RELATIVE_PATH REL_HEADER "${CMAKE_CURRENT_SOURCE_DIR}" "${HEADER}")
+			get_filename_component(HEADER_DIR "${REL_HEADER}" DIRECTORY)
+			#message(STATUS "HEADER_DIR: ${HEADER_DIR}" )
+			if(HEADER_DIR MATCHES "\/include\/")
+				# HEADER_DIR is sometimes `thing/include/thing/` (want `thing/`)
+				# and sometimes `thing/include/thing/thing2` (want `thing/thing2`)
+				# in both cases the desired path is just whatever comes after `include/`
+				string(REGEX REPLACE "^.*\/include\/" "" HEADER_DEST_DIR "${HEADER_DIR}")
+				set_source_files_properties("${HEADER}" PROPERTIES
+					MACOSX_PACKAGE_LOCATION "Headers/${HEADER_DEST_DIR}"
+				)
+			else()
+				# no `include/` segment, just mirror the directory as-is
+				set_source_files_properties("${HEADER}" PROPERTIES
+					MACOSX_PACKAGE_LOCATION "Headers/${HEADER_DIR}"
+				)
+			endif()
+		endforeach()
+		#message(STATUS "${VITA3K_PUBLIC_HEADERS}")
+		#]]
 	endif()
 
 	#iOS builds as a shared library, no need to exclude libs like android (?)
@@ -385,14 +454,19 @@ elseif(APPLE AND IOS)
     set_source_files_properties("${ICONSET_DIR}/Contents.json"
         PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/AppIcon.appiconset")
 
+	#]]
 
-    # Copy data directory into bundle root (no Resources/ subdirectory on iOS)
+	# put shaders-builtin inside the framework
+	# 1. so i don't have to bundle them in the app
+	# 2. things stay a bit more portable
+	# Bundle.resourcePath lands you in the Resources directory
     add_custom_command(
         TARGET vita3k
         POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/../data" "$<TARGET_BUNDLE_CONTENT_DIR:vita3k>/data"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/shaders-builtin/" "$<TARGET_BUNDLE_CONTENT_DIR:vita3k>/shaders-builtin")
-	#]]
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/shaders-builtin"
+            "$<TARGET_BUNDLE_CONTENT_DIR:vita3k>/Resources/shaders-builtin")
+
     # embed MoltenVK xcframework (no dylib on iOS)
 	message(STATUS "MoltenVK xcframework path: ${MOLTENVK_XCFRAMEWORK}")
     set_target_properties(vita3k PROPERTIES

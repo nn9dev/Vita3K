@@ -35,6 +35,11 @@ struct CPUInterface;
 typedef std::unique_ptr<CPUState, std::function<void(CPUState *)>> CPUStatePtr;
 typedef std::unique_ptr<CPUInterface> CPUInterfacePtr;
 
+enum class CPUBackend {
+    Dynarmic,
+    ArmDynCom,
+};
+
 inline constexpr std::size_t MAX_CORE_COUNT = 150;
 
 struct CPUContext {

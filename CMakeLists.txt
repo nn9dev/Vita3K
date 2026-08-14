@@ -30,7 +30,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(APPLE AND NOT MOBILE)
 	set(CMAKE_OSX_DEPLOYMENT_TARGET 11.0)
 elseif(APPLE AND MOBILE)
-	set(CMAKE_OSX_DEPLOYMENT_TARGET 15.6)
+	set(CMAKE_OSX_DEPLOYMENT_TARGET 16.0)
 endif()
 
 # workaround for SDL due to cmake bug
@@ -325,19 +325,20 @@ if(IOS)
 # but at least i now have that make_modulemap.sh that can pick out all the headers I need
 # Maybe I can make an xcframework?
 
-#[[
+##[[
 # generate and set the modulemap file for the project
 	execute_process(COMMAND bash ${PROJECT_SOURCE_DIR}/ios/make-modulemap.sh 
 		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 	)
 	set_target_properties(vita3k PROPERTIES
-		XCODE_ATTRIBUTE_MODULEMAP_FILE "$(SRCROOT)/../../module.modulemap"
+		XCODE_ATTRIBUTE_MODULEMAP_FILE "$(SRCROOT)/ios/module.modulemap"
 		XCODE_ATTRIBUTE_DEFINES_MODULE "YES"
 		XCODE_ATTRIBUTE_CLANG_ENABLE_MODULES "NO"
-		# -Wno-module-import-in-extern-c
 	)
-
+#[[
 	#stupid thing i have to do because a full recursive include includes concurrentqueue's dlib which blows everything up
+	# it recurses through every cmake target of ("parameter") and finds what was declared as their include paths
+	# and outputs them in a list
 set(all_includes "")
 function(collect_includes_recursive dir)
     get_property(targets DIRECTORY ${dir} PROPERTY BUILDSYSTEM_TARGETS)

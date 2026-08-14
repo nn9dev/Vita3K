@@ -18,9 +18,13 @@
 #include <cpu/disasm/functions.h>
 #include <cpu/functions.h>
 #include <cpu/impl/dynarmic_cpu.h>
+#ifdef ENABLE_ARM_DYNCOM
+#include <cpu/impl/arm_dyncom_cpu.h>
+#endif
 #include <cpu/impl/interface.h>
 #include <cpu/state.h>
 #include <mem/ptr.h>
+#include <util/log.h>
 #include <util/types.h>
 
 #include <memory>
@@ -38,7 +42,7 @@ SceUID get_thread_id(CPUState &state) {
     return state.thread_id;
 }
 
-CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, MemState &mem) {
+CPUStatePtr init_cpu(CPUBackend backend, bool cpu_opt, SceUID thread_id, std::size_t processor_id, MemState &mem) {
     CPUStatePtr state(new CPUState(), delete_cpu_state);
     state->mem = &mem;
     state->thread_id = thread_id;
@@ -46,6 +50,19 @@ CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, M
     if (!init(state->disasm)) {
         return CPUStatePtr();
     }
+
+#ifdef ENABLE_ARM_DYNCOM
+    // force arm_dyncom
+    backend = CPUBackend::ArmDynCom
+    if (backend == CPUBackend::ArmDynCom) {
+        state->cpu = std::make_unique<ArmDynComCPU>(state.get(), processor_id, cpu_opt);
+        return state;
+    }
+#else
+    if (backend == CPUBackend::ArmDynCom) {
+        LOG_WARN("arm_dyncom backend requested but not built (ENABLE_ARM_DYNCOM=OFF); using Dynarmic");
+    }
+#endif
 
     state->cpu = std::make_unique<DynarmicCPU>(state.get(), processor_id, cpu_opt);
 

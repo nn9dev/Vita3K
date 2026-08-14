@@ -139,6 +139,26 @@ if(MSVC)
 	endif()
 endif()
 
+option(ENABLE_ARM_DYNCOM "Include the arm_dyncom interpreter CPU backend" ON)
+if(ENABLE_ARM_DYNCOM)
+	add_library(arm_dyncom STATIC
+		arm_dyncom/arm_dyncom_interpreter.cpp
+		arm_dyncom/arm_dyncom_dec.cpp
+		arm_dyncom/arm_dyncom_thumb.cpp
+		arm_dyncom/arm_dyncom_trans.cpp
+		arm_dyncom/skyeye_common/armstate.cpp
+		arm_dyncom/skyeye_common/armsupp.cpp
+		arm_dyncom/skyeye_common/vfp/vfp.cpp
+		arm_dyncom/skyeye_common/vfp/vfpdouble.cpp
+		arm_dyncom/skyeye_common/vfp/vfpsingle.cpp
+	)
+
+	target_include_directories(arm_dyncom PUBLIC
+		"${CMAKE_CURRENT_SOURCE_DIR}"
+		"${CMAKE_CURRENT_SOURCE_DIR}/arm_dyncom")
+	target_link_libraries(arm_dyncom PRIVATE util mem)
+endif()
+
 add_library(vita-toolchain INTERFACE)
 target_include_directories(vita-toolchain INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vita-toolchain/src")
 
