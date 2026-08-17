@@ -110,7 +110,7 @@ ExitCode init(const Root &root_paths, bool use_stdout) {
     SetConsoleTitle("Vita3K PSVita Emulator");
 #endif
 
-#if defined(__ANDROID__) || defined(TARGET_OS_IOS)
+#if defined(__ANDROID__) || (TARGET_OS_IOS == 1)
     // needed, otherwise the log file contains nothing
     spdlog::flush_on(spdlog::level::trace);
     std::cout << "spdlog set to spdlog::level::trace, print buffers will flush more often." << std::endl;

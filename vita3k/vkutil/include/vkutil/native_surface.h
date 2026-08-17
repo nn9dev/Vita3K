@@ -17,11 +17,10 @@
 
 #pragma once
 
-#ifdef TARGET_OS_IOS
+#if TARGET_OS_IOS
 extern "C" void *get_metal_layer_from_view(void *uiview);
 extern "C" void get_view_drawable_size(void *uiview, int *out_width, int *out_height);
 
-#elif defined TARGET_OS_OSX
+#elif TARGET_OS_OSX
 extern "C" void *get_metal_layer_from_view(void *nsview);
-//extern "C" void get_view_drawable_size(void *nsview, int *out_width, int *out_height);
 #endif

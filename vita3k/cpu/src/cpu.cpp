@@ -53,7 +53,7 @@ CPUStatePtr init_cpu(CPUBackend backend, bool cpu_opt, SceUID thread_id, std::si
 
 #ifdef ENABLE_ARM_DYNCOM
     // force arm_dyncom
-    backend = CPUBackend::ArmDynCom
+    backend = CPUBackend::ArmDynCom;
     if (backend == CPUBackend::ArmDynCom) {
         state->cpu = std::make_unique<ArmDynComCPU>(state.get(), processor_id, cpu_opt);
         return state;
