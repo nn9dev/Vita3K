@@ -20,6 +20,7 @@
 #include "arm_dyncom_interpreter.h"
 #include "arm_dyncom_run.h"
 #include "arm_dyncom_thumb.h"
+#include "arm_dyncom_thumb2.h"
 #include "arm_dyncom_trans.h"
 #include "skyeye_common/armstate.h"
 #include "skyeye_common/armsupp.h"
@@ -819,12 +820,23 @@ static unsigned int InterpreterTranslateInstruction(const ARMul_State* cpu, cons
     // If we are in Thumb mode, we'll translate one Thumb instruction to the corresponding ARM
     // instruction
     if (cpu->TFlag) {
+        // 32-bit Thumb-2 encodings begin with 0b11101/11110/11111 in bits[15:11].
+        // The Thumb-2 decoder either decodes this instruction or emits a logged 4-byte skip
+        // TODO: DO NOT PUT THE FOUR BYTE SKIP INTO A RELEASE!
+        const u32 hw1 = GetThumbInstruction(inst, phys_addr);
+        if (((hw1 >> 11) & 0x1F) >= 0x1D) {
+            TranslateThumb2Instruction(cpu, phys_addr, inst, &inst_size, &inst_base);
+            inst_base->size = inst_size;
+            return inst_size;
+        }
+
         u32 arm_inst;
         ThumbDecodeStatus state =
             DecodeThumbInstruction(inst, phys_addr, &arm_inst, &inst_size, &inst_base);
 
         // We have translated the Thumb branch instruction in the Thumb decoder
         if (state == ThumbDecodeStatus::BRANCH) {
+            inst_base->size = inst_size;
             return inst_size;
         }
         inst = arm_inst;
@@ -839,6 +851,7 @@ static unsigned int InterpreterTranslateInstruction(const ARMul_State* cpu, cons
         CITRA_IGNORE_EXIT(-1);
     }
     inst_base = arm_instruction_trans[idx](inst, idx);
+    inst_base->size = inst_size;
 
     return inst_size;
 }
@@ -1611,6 +1624,11 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
                          &&SEV_INST,
                          &&SWI_INST,
                          &&BBL_INST,
+                         &&THUMB2_MOV_IMM_INST,
+                         &&MOVW_INST,
+                         &&MOVT_INST,
+                         &&THUMB2_BL_INST,
+                         &&THUMB2_UNDEF_INST,
                          &&B_2_THUMB,
                          &&B_COND_THUMB,
                          &&BL_1_THUMB,
@@ -1620,6 +1638,9 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
                          &&INIT_INST_LENGTH,
                          &&END};
 #endif
+    // inst_base is the wrapper (header: idx/cond/br), 
+    // and inst_cream is the "filling" inside it.
+    // aka the decoded operands, viewed as the right type.
     arm_inst* inst_base;
     unsigned int addr;
     unsigned int num_instrs = 0;
@@ -1668,7 +1689,7 @@ ADC_INST: {
 
         u32 rn_val = RN;
         if (inst_cream->Rn == 15)
-            rn_val += 2 * cpu->GetInstructionSize();
+            rn_val += (cpu->TFlag ? 4u : 8u);
 
         bool carry;
         bool overflow;
@@ -1691,7 +1712,7 @@ ADC_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(adc_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1723,7 +1744,7 @@ ADD_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(add_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1736,7 +1757,7 @@ AND_INST: {
         u32 rop = SHIFTER_OPERAND;
 
         if (inst_cream->Rn == 15)
-            lop += 2 * cpu->GetInstructionSize();
+            lop += (cpu->TFlag ? 4u : 8u);
 
         RD = lop & rop;
 
@@ -1756,7 +1777,7 @@ AND_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(and_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1771,16 +1792,76 @@ BBL_INST: {
         INC_PC(sizeof(bbl_inst));
         goto DISPATCH;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(bbl_inst));
     goto DISPATCH;
+}
+MOVW_INST: {
+    // MOVW Rd, #imm16 — write the 16-bit immediate into Rd, zero-extended.
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        mov16_inst* inst_cream = (mov16_inst*)inst_base->component;
+        cpu->Reg[inst_cream->Rd] = inst_cream->imm16;
+    }
+    cpu->Reg[15] += inst_base->size;
+    INC_PC(sizeof(mov16_inst));
+    FETCH_INST;
+    GOTO_NEXT_INST;
+}
+MOVT_INST: {
+    // MOVT Rd, #imm16 — replace the top halfword of Rd, leaving the low half.
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        mov16_inst* inst_cream = (mov16_inst*)inst_base->component;
+        cpu->Reg[inst_cream->Rd] = (cpu->Reg[inst_cream->Rd] & 0x0000FFFF) | (inst_cream->imm16 << 16);
+    }
+    cpu->Reg[15] += inst_base->size;
+    INC_PC(sizeof(mov16_inst));
+    FETCH_INST;
+    GOTO_NEXT_INST;
+}
+THUMB2_MOV_IMM_INST: {
+    // MOV{S}.W Rd, #const (T2, modified immediate), as expanded by ThumbExpandImm
+    thumb2_mov_imm_inst* inst_cream = (thumb2_mov_imm_inst*)inst_base->component;
+    cpu->Reg[inst_cream->Rd] = inst_cream->imm;
+    if (inst_cream->S) {
+        cpu->NFlag = (inst_cream->imm >> 31) & 1;
+        cpu->ZFlag = (inst_cream->imm == 0);
+        if (inst_cream->update_c)
+            cpu->CFlag = inst_cream->carry;
+        // V is unaffected.
+    }
+    cpu->Reg[15] += inst_base->size;
+    INC_PC(sizeof(thumb2_mov_imm_inst));
+    FETCH_INST;
+    GOTO_NEXT_INST;
+}
+THUMB2_BL_INST: {
+    // BL / BLX (T1/T2), single 32-bit instruction. Thumb read-PC is (addr + 4).
+    thumb2_bl_inst* inst_cream = (thumb2_bl_inst*)inst_base->component;
+    const u32 pc = cpu->Reg[15] + 4;
+    cpu->Reg[14] = (cpu->Reg[15] + 4) | 1; // return address (next instr) | Thumb bit
+    if (inst_cream->blx) {
+        cpu->Reg[15] = (pc & 0xFFFFFFFC) + inst_cream->imm; // word-align, then offset
+        cpu->TFlag = 0;                                     // switch to ARM state
+    } else {
+        cpu->Reg[15] = pc + inst_cream->imm;
+    }
+    INC_PC(sizeof(thumb2_bl_inst));
+    goto DISPATCH;
+}
+THUMB2_UNDEF_INST: {
+    // Unimplemented 32-bit Thumb-2 instruction: skip its full width so the
+    // stream stays aligned (the encoding was already logged at translate time).
+    cpu->Reg[15] += inst_base->size;
+    INC_PC(sizeof(thumb2_undef_inst));
+    FETCH_INST;
+    GOTO_NEXT_INST;
 }
 BIC_INST: {
     bic_inst* inst_cream = (bic_inst*)inst_base->component;
     if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
         u32 lop = RN;
         if (inst_cream->Rn == 15) {
-            lop += 2 * cpu->GetInstructionSize();
+            lop += (cpu->TFlag ? 4u : 8u);
         }
         u32 rop = SHIFTER_OPERAND;
         RD = lop & (~rop);
@@ -1800,7 +1881,7 @@ BIC_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(bic_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1810,7 +1891,7 @@ BKPT_INST: {
         bkpt_inst* const inst_cream = (bkpt_inst*)inst_base->component;
         LOG_DEBUG("Breakpoint instruction hit. Immediate: {:#010X}", inst_cream->imm);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(bkpt_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1821,13 +1902,13 @@ BLX_INST: {
         unsigned int inst = inst_cream->inst;
         if (BITS(inst, 20, 27) == 0x12 && BITS(inst, 4, 7) == 0x3) {
             const u32 jump_address = cpu->Reg[inst_cream->val.Rm];
-            cpu->Reg[14] = (cpu->Reg[15] + cpu->GetInstructionSize());
+            cpu->Reg[14] = (cpu->Reg[15] + inst_base->size);
             if (cpu->TFlag)
                 cpu->Reg[14] |= 0x1;
             cpu->Reg[15] = jump_address & 0xfffffffe;
             cpu->TFlag = jump_address & 0x1;
         } else {
-            cpu->Reg[14] = (cpu->Reg[15] + cpu->GetInstructionSize());
+            cpu->Reg[14] = (cpu->Reg[15] + inst_base->size);
             cpu->TFlag = 0x1;
             int signed_int = inst_cream->val.signed_immed_24;
             signed_int = (signed_int & 0x800000) ? (0x3F000000 | signed_int) : signed_int;
@@ -1837,7 +1918,7 @@ BLX_INST: {
         INC_PC(sizeof(blx_inst));
         goto DISPATCH;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(blx_inst));
     goto DISPATCH;
 }
@@ -1858,7 +1939,7 @@ BXJ_INST: {
         u32 address = RM;
 
         if (inst_cream->Rm == 15)
-            address += 2 * cpu->GetInstructionSize();
+            address += (cpu->TFlag ? 4u : 8u);
 
         cpu->TFlag = address & 1;
         cpu->Reg[15] = address & 0xfffffffe;
@@ -1866,7 +1947,7 @@ BXJ_INST: {
         goto DISPATCH;
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(bx_inst));
     goto DISPATCH;
 }
@@ -1877,7 +1958,7 @@ CDP_INST: {
         cpu->NumInstrsToExecute = 0;
         return num_instrs;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(cdp_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1885,7 +1966,7 @@ CDP_INST: {
 
 CLREX_INST: {
     cpu->UnsetExclusiveMemoryAddress();
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(clrex_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1895,7 +1976,7 @@ CLZ_INST: {
         clz_inst* inst_cream = (clz_inst*)inst_base->component;
         RD = clz(RM);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(clz_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1906,7 +1987,7 @@ CMN_INST: {
 
         u32 rn_val = RN;
         if (inst_cream->Rn == 15)
-            rn_val += 2 * cpu->GetInstructionSize();
+            rn_val += (cpu->TFlag ? 4u : 8u);
 
         bool carry;
         bool overflow;
@@ -1917,7 +1998,7 @@ CMN_INST: {
         cpu->CFlag = carry;
         cpu->VFlag = overflow;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(cmn_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1928,7 +2009,7 @@ CMP_INST: {
 
         u32 rn_val = RN;
         if (inst_cream->Rn == 15)
-            rn_val += 2 * cpu->GetInstructionSize();
+            rn_val += (cpu->TFlag ? 4u : 8u);
 
         bool carry;
         bool overflow;
@@ -1939,7 +2020,7 @@ CMP_INST: {
         cpu->CFlag = carry;
         cpu->VFlag = overflow;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(cmp_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1970,7 +2051,7 @@ CPS_INST: {
             cpu->ChangePrivilegeMode(inst_cream->mode);
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(cps_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1985,7 +2066,7 @@ CPY_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(mov_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1996,7 +2077,7 @@ EOR_INST: {
 
         u32 lop = RN;
         if (inst_cream->Rn == 15) {
-            lop += 2 * cpu->GetInstructionSize();
+            lop += (cpu->TFlag ? 4u : 8u);
         }
         u32 rop = SHIFTER_OPERAND;
         RD = lop ^ rop;
@@ -2016,7 +2097,7 @@ EOR_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(eor_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2024,7 +2105,7 @@ EOR_INST: {
 LDC_INST: {
     // Instruction not implemented
     // LOG_CRITICAL("unimplemented instruction");
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldc_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2095,7 +2176,7 @@ LDM_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2112,7 +2193,7 @@ SXTH_INST: {
         }
         RD = operand2;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(sxth_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2132,7 +2213,7 @@ LDR_INST: {
         goto DISPATCH;
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2153,7 +2234,7 @@ LDRCOND_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2163,7 +2244,7 @@ UXTH_INST: {
         uxth_inst* inst_cream = (uxth_inst*)inst_base->component;
         RD = ROTATE_RIGHT_32(RM, 8 * inst_cream->rotate) & 0xffff;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(uxth_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2175,7 +2256,7 @@ UXTAH_INST: {
 
         RD = RN + operand2;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(uxtah_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2187,7 +2268,7 @@ LDRB_INST: {
 
         cpu->Reg[BITS(inst_cream->inst, 12, 15)] = cpu->ReadMemory8(addr);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2206,7 +2287,7 @@ LDRBT_INST: {
 
         cpu->Reg[dest_index] = value;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2225,7 +2306,7 @@ LDRD_INST: {
 
         // No dispatch since this operation should not modify R15
     }
-    cpu->Reg[15] += 4;
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2240,7 +2321,7 @@ LDREX_INST: {
 
         RD = cpu->ReadMemory32(read_addr);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2254,7 +2335,7 @@ LDREXB_INST: {
 
         RD = cpu->ReadMemory8(read_addr);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2268,7 +2349,7 @@ LDREXH_INST: {
 
         RD = cpu->ReadMemory16(read_addr);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2283,7 +2364,7 @@ LDREXD_INST: {
         RD = cpu->ReadMemory32(read_addr);
         RD2 = cpu->ReadMemory32(read_addr + 4);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2295,7 +2376,7 @@ LDRH_INST: {
 
         cpu->Reg[BITS(inst_cream->inst, 12, 15)] = cpu->ReadMemory16(addr);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2310,7 +2391,7 @@ LDRSB_INST: {
         }
         cpu->Reg[BITS(inst_cream->inst, 12, 15)] = value;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2326,7 +2407,7 @@ LDRSH_INST: {
         }
         cpu->Reg[BITS(inst_cream->inst, 12, 15)] = value;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2345,7 +2426,7 @@ LDRT_INST: {
 
         cpu->Reg[dest_index] = value;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2362,7 +2443,7 @@ MCR_INST: {
                 cpu->WriteCP15Register(RD, CRn, OPCODE_1, CRm, OPCODE_2);
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(mcr_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2379,7 +2460,7 @@ MCRR_INST: {
                   inst_cream->rt2);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(mcrr_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2399,7 +2480,7 @@ MLA_INST: {
             UPDATE_ZFLAG(RD);
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(mla_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2425,7 +2506,7 @@ MOV_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(mov_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2445,7 +2526,7 @@ MRC_INST: {
             }
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(mrc_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2462,7 +2543,7 @@ MRRC_INST: {
                   inst_cream->rt2);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(mcrr_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2479,7 +2560,7 @@ MRS_INST: {
             RD = cpu->Cpsr;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(mrs_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2522,7 +2603,7 @@ MSR_INST: {
             }
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(msr_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2539,7 +2620,7 @@ MUL_INST: {
             UPDATE_ZFLAG(RD);
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(mul_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2566,7 +2647,7 @@ MVN_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(mvn_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2579,7 +2660,7 @@ ORR_INST: {
         u32 rop = SHIFTER_OPERAND;
 
         if (inst_cream->Rn == 15)
-            lop += 2 * cpu->GetInstructionSize();
+            lop += (cpu->TFlag ? 4u : 8u);
 
         RD = lop | rop;
 
@@ -2599,14 +2680,14 @@ ORR_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(orr_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
 }
 
 NOP_INST: {
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC_STUB;
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2617,7 +2698,7 @@ PKHBT_INST: {
         pkh_inst* inst_cream = (pkh_inst*)inst_base->component;
         RD = (RN & 0xFFFF) | ((RM << inst_cream->imm) & 0xFFFF0000);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(pkh_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2629,7 +2710,7 @@ PKHTB_INST: {
         int shift_imm = inst_cream->imm ? inst_cream->imm : 31;
         RD = ((static_cast<s32>(RM) >> shift_imm) & 0xFFFF) | (RN & 0xFFFF0000);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(pkh_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2638,7 +2719,7 @@ PKHTB_INST: {
 PLD_INST: {
     // Not implemented. PLD is a hint instruction, so it's optional.
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(pld_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2710,7 +2791,7 @@ QSUB_INST: {
         RD = result;
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2771,7 +2852,7 @@ QSUBADDX_INST: {
         RD = (lo_result & 0xFFFF) | ((hi_result & 0xFFFF) << 16);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2805,7 +2886,7 @@ REVSH_INST: {
         }
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(rev_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2831,7 +2912,7 @@ RSB_INST: {
 
         u32 rn_val = RN;
         if (inst_cream->Rn == 15)
-            rn_val += 2 * cpu->GetInstructionSize();
+            rn_val += (cpu->TFlag ? 4u : 8u);
 
         bool carry;
         bool overflow;
@@ -2854,7 +2935,7 @@ RSB_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(rsb_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2865,7 +2946,7 @@ RSC_INST: {
 
         u32 rn_val = RN;
         if (inst_cream->Rn == 15)
-            rn_val += 2 * cpu->GetInstructionSize();
+            rn_val += (cpu->TFlag ? 4u : 8u);
 
         bool carry;
         bool overflow;
@@ -2888,7 +2969,7 @@ RSC_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(rsc_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -2995,7 +3076,7 @@ SSUB16_INST: {
         }
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3007,7 +3088,7 @@ SBC_INST: {
 
         u32 rn_val = RN;
         if (inst_cream->Rn == 15)
-            rn_val += 2 * cpu->GetInstructionSize();
+            rn_val += (cpu->TFlag ? 4u : 8u);
 
         bool carry;
         bool overflow;
@@ -3030,7 +3111,7 @@ SBC_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(sbc_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3068,7 +3149,7 @@ SEL_INST: {
         RD = result;
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3086,7 +3167,7 @@ SETEND_INST: {
 
     LOG_WARN("SETEND {} executed", big_endian ? "BE" : "LE");
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(setend_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3098,7 +3179,7 @@ SEV_INST: {
         LOG_TRACE("SEV executed.");
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC_STUB;
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3169,7 +3250,7 @@ SHSUBADDX_INST: {
         }
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3195,7 +3276,7 @@ SMLA_INST: {
             cpu->Cpsr |= (1 << 27);
         RD = result;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(smla_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3254,7 +3335,7 @@ SMUSD_INST: {
         }
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(smlad_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3282,7 +3363,7 @@ SMLAL_INST: {
             cpu->ZFlag = (RDHI == 0 && RDLO == 0);
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(umlal_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3311,7 +3392,7 @@ SMLALXY_INST: {
         RDHI = ((dest >> 32) & 0xFFFFFFFF);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(smlalxy_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3335,7 +3416,7 @@ SMLAW_INST: {
             cpu->Cpsr |= (1 << 27);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(smlad_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3372,7 +3453,7 @@ SMLSLD_INST: {
         RDHI = ((result >> 32) & 0xFFFFFFFF);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(smlald_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3407,7 +3488,7 @@ SMMUL_INST: {
         RD = ((result >> 32) & 0xFFFFFFFF);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(smlad_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3428,7 +3509,7 @@ SMUL_INST: {
             operand2 = (BIT(RS, 31)) ? (BITS(RS, 16, 31) | 0xffff0000) : BITS(RS, 16, 31);
         RD = operand1 * operand2;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(smul_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3453,7 +3534,7 @@ SMULL_INST: {
             cpu->ZFlag = (RDHI == 0 && RDLO == 0);
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(umull_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3468,7 +3549,7 @@ SMULW_INST: {
         s64 result = (s64)rm * (s64)(s32)RN;
         RD = BITS(result, 16, 47);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(smlad_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3484,7 +3565,7 @@ SRS_INST: {
     cpu->WriteMemory32(address + 0, cpu->Reg[14]);
     cpu->WriteMemory32(address + 4, cpu->Spsr_copy);
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3516,7 +3597,7 @@ SSAT_INST: {
         RD = rn_val;
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ssat_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3537,7 +3618,7 @@ SSAT16_INST: {
             cpu->Cpsr |= (1 << 27);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ssat_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3546,7 +3627,7 @@ SSAT16_INST: {
 STC_INST: {
     // Instruction not implemented
     // LOG_CRITICAL("unimplemented instruction");
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(stc_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3604,7 +3685,7 @@ STM_INST: {
             }
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3621,7 +3702,7 @@ SXTB_INST: {
         }
         RD = operand2;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(sxtb_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3635,11 +3716,11 @@ STR_INST: {
         unsigned int value = cpu->Reg[reg];
 
         if (reg == 15)
-            value += 2 * cpu->GetInstructionSize();
+            value += (cpu->TFlag ? 4u : 8u);
 
         cpu->WriteMemory32(addr, value);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3649,7 +3730,7 @@ UXTB_INST: {
         uxtb_inst* inst_cream = (uxtb_inst*)inst_base->component;
         RD = ROTATE_RIGHT_32(RM, 8 * inst_cream->rotate) & 0xff;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(uxtb_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3661,7 +3742,7 @@ UXTAB_INST: {
         unsigned int operand2 = ROTATE_RIGHT_32(RM, 8 * inst_cream->rotate) & 0xff;
         RD = RN + operand2;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(uxtab_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3673,7 +3754,7 @@ STRB_INST: {
         unsigned int value = cpu->Reg[BITS(inst_cream->inst, 12, 15)] & 0xff;
         cpu->WriteMemory8(addr, value);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3690,7 +3771,7 @@ STRBT_INST: {
         cpu->WriteMemory8(addr, value);
         cpu->ChangePrivilegeMode(previous_mode);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3705,7 +3786,7 @@ STRD_INST: {
         cpu->WriteMemory32(addr + 0, cpu->Reg[BITS(inst_cream->inst, 12, 15)]);
         cpu->WriteMemory32(addr + 4, cpu->Reg[BITS(inst_cream->inst, 12, 15) + 1]);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3724,7 +3805,7 @@ STREX_INST: {
             RD = 1;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3743,7 +3824,7 @@ STREXB_INST: {
             RD = 1;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3772,7 +3853,7 @@ STREXD_INST: {
             RD = 1;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3791,7 +3872,7 @@ STREXH_INST: {
             RD = 1;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3804,7 +3885,7 @@ STRH_INST: {
         unsigned int value = cpu->Reg[BITS(inst_cream->inst, 12, 15)] & 0xffff;
         cpu->WriteMemory16(addr, value);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3819,13 +3900,13 @@ STRT_INST: {
 
         u32 value = cpu->Reg[rt_index];
         if (rt_index == 15)
-            value += 2 * cpu->GetInstructionSize();
+            value += (cpu->TFlag ? 4u : 8u);
 
         cpu->ChangePrivilegeMode(USER32MODE);
         cpu->WriteMemory32(addr, value);
         cpu->ChangePrivilegeMode(previous_mode);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ldst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3857,7 +3938,7 @@ SUB_INST: {
             goto DISPATCH;
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(sub_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3878,12 +3959,12 @@ SWI_INST: {
         cpu->svc_called = true;
         // The kernel would call ERET to get here, which clears exclusive memory state.
         cpu->UnsetExclusiveMemoryAddress();
-        cpu->Reg[15] += cpu->GetInstructionSize();
+        cpu->Reg[15] += inst_base->size;
         INC_PC(sizeof(swi_inst));
         goto END;
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(swi_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3898,7 +3979,7 @@ SWP_INST: {
 
         RD = value;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(swp_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3911,7 +3992,7 @@ SWPB_INST: {
         cpu->WriteMemory8(addr, (RM & 0xFF));
         RD = value;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(swp_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3926,7 +4007,7 @@ SXTAB_INST: {
         operand2 = (0x80 & operand2) ? (0xFFFFFF00 | operand2) : operand2;
         RD = RN + operand2;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(uxtab_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3958,7 +4039,7 @@ SXTB16_INST: {
         }
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(sxtab_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3973,7 +4054,7 @@ SXTAH_INST: {
         operand2 = (0x8000 & operand2) ? (0xFFFF0000 | operand2) : operand2;
         RD = RN + operand2;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(sxtah_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -3987,7 +4068,7 @@ TEQ_INST: {
         u32 rop = SHIFTER_OPERAND;
 
         if (inst_cream->Rn == 15)
-            lop += cpu->GetInstructionSize() * 2;
+            lop += (cpu->TFlag ? 4u : 8u);
 
         u32 result = lop ^ rop;
 
@@ -3995,7 +4076,7 @@ TEQ_INST: {
         UPDATE_ZFLAG(result);
         UPDATE_CFLAG_WITH_SC;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(teq_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4008,7 +4089,7 @@ TST_INST: {
         u32 rop = SHIFTER_OPERAND;
 
         if (inst_cream->Rn == 15)
-            lop += cpu->GetInstructionSize() * 2;
+            lop += (cpu->TFlag ? 4u : 8u);
 
         u32 result = lop & rop;
 
@@ -4016,7 +4097,7 @@ TST_INST: {
         UPDATE_ZFLAG(result);
         UPDATE_CFLAG_WITH_SC;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(tst_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4186,7 +4267,7 @@ USUBADDX_INST: {
         RD = (lo_result & 0xFFFF) | ((hi_result & 0xFFFF) << 16);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4264,7 +4345,7 @@ UHSUB16_INST: {
         }
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4282,7 +4363,7 @@ UMAAL_INST: {
         RDLO = (result & 0xFFFFFFFF);
         RDHI = ((result >> 32) & 0xFFFFFFFF);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(umaal_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4304,7 +4385,7 @@ UMLAL_INST: {
             cpu->ZFlag = (RDHI == 0 && RDLO == 0);
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(umlal_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4323,7 +4404,7 @@ UMULL_INST: {
             cpu->ZFlag = (RDHI == 0 && RDLO == 0);
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(umull_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4340,7 +4421,7 @@ B_COND_THUMB: {
     if (CondPassed(cpu, inst_cream->cond))
         cpu->Reg[15] = cpu->Reg[15] + 4 + inst_cream->imm;
     else
-        cpu->Reg[15] += 2;
+        cpu->Reg[15] += inst_base->size;
 
     INC_PC(sizeof(b_cond_thumb));
     goto DISPATCH;
@@ -4348,7 +4429,7 @@ B_COND_THUMB: {
 BL_1_THUMB: {
     bl_1_thumb* inst_cream = (bl_1_thumb*)inst_base->component;
     cpu->Reg[14] = cpu->Reg[15] + 4 + inst_cream->imm;
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(bl_1_thumb));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4426,7 +4507,7 @@ UQSUBADDX_INST: {
         RD = ((lo_val & 0xFFFF) | hi_val << 16);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4458,7 +4539,7 @@ USADA8_INST: {
         RD = finalDif;
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(generic_arm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4490,7 +4571,7 @@ USAT_INST: {
         RD = rn_val;
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ssat_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4511,7 +4592,7 @@ USAT16_INST: {
             cpu->Cpsr |= (1 << 27);
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(ssat_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4541,7 +4622,7 @@ UXTB16_INST: {
         }
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(uxtab_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4553,7 +4634,7 @@ WFE_INST: {
         LOG_TRACE("WFE executed.");
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC_STUB;
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4565,7 +4646,7 @@ WFI_INST: {
         LOG_TRACE("WFI executed.");
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC_STUB;
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -4577,7 +4658,7 @@ YIELD_INST: {
         LOG_TRACE("YIELD executed.");
     }
 
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC_STUB;
     FETCH_INST;
     GOTO_NEXT_INST;

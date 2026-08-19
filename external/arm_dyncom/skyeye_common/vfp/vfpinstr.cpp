@@ -49,7 +49,7 @@ VMLA_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmla_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -96,7 +96,7 @@ VMLS_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmls_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -143,7 +143,7 @@ VNMLA_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vnmla_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -191,7 +191,7 @@ VNMLS_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vnmls_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -238,7 +238,7 @@ VNMUL_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vnmul_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -285,7 +285,7 @@ VMUL_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmul_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -332,7 +332,7 @@ VADD_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vadd_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -379,7 +379,7 @@ VSUB_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vsub_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -426,7 +426,7 @@ VDIV_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vdiv_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -475,7 +475,7 @@ VMOVI_INST : {
 
         VMOVI(cpu, inst_cream->single, inst_cream->d, inst_cream->imm);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmovi_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -519,7 +519,7 @@ VMOVR_INST : {
 
         VMOVR(cpu, inst_cream->single, inst_cream->d, inst_cream->m);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmovr_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -566,7 +566,7 @@ VABS_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vabs_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -614,7 +614,7 @@ VNEG_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vneg_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -661,7 +661,7 @@ VSQRT_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vsqrt_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -708,7 +708,7 @@ VCMP_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vcmp_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -755,7 +755,7 @@ VCMP2_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vcmp2_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -802,7 +802,7 @@ VCVTBDS_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vcvtbds_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -851,7 +851,7 @@ VCVTBFF_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vcvtbff_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -898,7 +898,7 @@ VCVTBFI_INST : {
 
         CHECK_VFP_CDP_RET;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vcvtbfi_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -946,7 +946,7 @@ VMOVBRS_INST : {
 
         VMOVBRS(cpu, inst_cream->to_arm, inst_cream->t, inst_cream->n, &(cpu->Reg[inst_cream->t]));
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmovbrs_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1002,7 +1002,7 @@ VMSR_INST : {
                 cpu->VFP[VFP_FPINST2] = cpu->Reg[rt];
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmsr_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1048,7 +1048,7 @@ VMOVBRC_INST : {
 
         cpu->ExtReg[(2 * inst_cream->d) + inst_cream->index] = cpu->Reg[inst_cream->t];
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmovbrc_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1118,7 +1118,7 @@ VMRS_INST : {
                 cpu->Reg[rt] = cpu->VFP[VFP_FPINST2];
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmrs_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1164,7 +1164,7 @@ VMOVBCR_INST : {
 
         cpu->Reg[inst_cream->t] = cpu->ExtReg[(2 * inst_cream->d) + inst_cream->index];
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmovbcr_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1215,7 +1215,7 @@ VMOVBRRSS_INST : {
         VMOVBRRSS(cpu, inst_cream->to_arm, inst_cream->t, inst_cream->t2, inst_cream->m,
                   &cpu->Reg[inst_cream->t], &cpu->Reg[inst_cream->t2]);
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmovbrrss_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1261,7 +1261,7 @@ VMOVBRRD_INST : {
         VMOVBRRD(cpu, inst_cream->to_arm, inst_cream->t, inst_cream->t2, inst_cream->m,
                  &(cpu->Reg[inst_cream->t]), &(cpu->Reg[inst_cream->t2]));
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vmovbrrd_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1330,7 +1330,7 @@ VSTR_INST : {
             }
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vstr_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1397,7 +1397,7 @@ VPUSH_INST : {
 
         cpu->Reg[R13] -= inst_cream->imm32;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vpush_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1548,7 +1548,7 @@ VPOP_INST : {
         }
         cpu->Reg[R13] += inst_cream->imm32;
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vpop_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1612,7 +1612,7 @@ VLDR_INST : {
             }
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vldr_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
@@ -1695,7 +1695,7 @@ VLDM_INST : {
                                  : cpu->Reg[inst_cream->n] - inst_cream->imm32);
         }
     }
-    cpu->Reg[15] += cpu->GetInstructionSize();
+    cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(vldm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;

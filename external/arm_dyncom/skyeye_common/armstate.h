@@ -29,9 +29,7 @@
 #include "core/gdbstub/gdbstub.h"
 #endif
 
-// Vita3K guest memory state. The interpreter reaches guest memory through this
-// (via Ptr<T>) instead of Citra's Memory::MemorySystem. Forward-declared so the
-// skyeye headers stay free of Vita3K includes; armstate.cpp pulls in mem/state.h.
+// interpreter reaches Vita3K guest memory through this
 struct MemState;
 
 // Signal levels
@@ -194,12 +192,6 @@ public:
     bool CurrentModeHasSPSR() const {
         return Mode != SYSTEM32MODE && InAPrivilegedMode();
     }
-    // Note that for the 3DS, a Thumb instruction will only ever be
-    // two bytes in size. Thus we don't need to worry about ThumbEE
-    // or Thumb-2 where instructions can be 4 bytes in length.
-    u32 GetInstructionSize() const {
-        return TFlag ? 2 : 4;
-    }
 
 #ifdef ENABLE_GDBSTUB
     void RecordBreak(GDBStub::BreakpointAddress bkpt) {
@@ -210,21 +202,11 @@ public:
 
     void ServeBreak();
 
-    // Vita3K guest memory. Non-owning; the MemState is owned by the emulator's
-    // mem module and outlives this ARMul_State. Reads/writes go through Ptr<T>.
     MemState* mem = nullptr;
 
-    // Memory-path tuning, mirrored from the owning ArmDynComCPU. When fastmem is
-    // on and memory logging is off, ReadMemory*/WriteMemory* resolve the guest
-    // address directly (page table or flat buffer) with no validation; otherwise
-    // they take a validated, optionally-logged path. Mirrors DynarmicCPU gating.
     bool fastmem = true;
     bool log_mem = false;
 
-    // Supervisor-call signalling. The interpreter does not execute SVCs inline
-    // (Vita3K handles them at the HLE layer); on an SVC it records the number
-    // here, sets svc_called, and stops the run loop. ArmDynComCPU drains these
-    // into CPUState after InterpreterMainLoop returns.
     bool svc_called = false;
     u32 svc = 0;
 

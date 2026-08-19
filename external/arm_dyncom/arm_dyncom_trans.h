@@ -26,6 +26,7 @@ struct arm_inst {
     unsigned int idx;
     unsigned int cond;
     TransExtData br;
+    u32 size;
     char component[0];
 };
 
@@ -485,6 +486,29 @@ typedef void (*get_addr_fp_t)(ARMul_State* cpu, unsigned int inst, unsigned int&
 struct ldst_inst {
     unsigned int inst;
     get_addr_fp_t get_addr;
+};
+
+struct mov16_inst {
+    unsigned int Rd;
+    unsigned int imm16;
+};
+
+struct thumb2_bl_inst {
+    unsigned int imm;
+    unsigned int blx;
+};
+
+// `enc` keeps (hw1<<16)|hw2 for debugging
+struct thumb2_undef_inst {
+    unsigned int enc;
+};
+
+struct thumb2_mov_imm_inst {
+    unsigned int Rd;
+    unsigned int imm;
+    unsigned int S;
+    unsigned int update_c;
+    unsigned int carry;
 };
 
 typedef arm_inst* ARM_INST_PTR;
