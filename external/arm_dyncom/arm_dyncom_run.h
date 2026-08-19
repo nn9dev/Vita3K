@@ -29,9 +29,12 @@
  *
  * @return If the PC is being read, then the word-aligned PC value is returned.
  *         If the PC is not being read, then the value stored in the register is returned.
+ *         ARM = current + 8 (word-aligned). Thumb = current + 4, then Align(_, 4)
  */
 inline u32 CHECK_READ_REG15_WA(const ARMul_State* cpu, int Rn) {
-    return (Rn == 15) ? ((cpu->Reg[15] & ~0x3) + cpu->GetInstructionSize() * 2) : cpu->Reg[Rn];
+    if (Rn != 15)
+        return cpu->Reg[Rn];
+    return cpu->TFlag ? ((cpu->Reg[15] + 4) & ~0x3) : (cpu->Reg[15] + 8);
 }
 
 /**
@@ -42,7 +45,10 @@ inline u32 CHECK_READ_REG15_WA(const ARMul_State* cpu, int Rn) {
  *
  * @return If the PC is being read, then the incremented PC value is returned.
  *         If the PC is not being read, then the values stored in the register is returned.
+ *         ARM = current + 8, Thumb = current + 4 (no alignment).
  */
 inline u32 CHECK_READ_REG15(const ARMul_State* cpu, int Rn) {
-    return (Rn == 15) ? ((cpu->Reg[15] & ~0x1) + cpu->GetInstructionSize() * 2) : cpu->Reg[Rn];
+    if (Rn != 15)
+        return cpu->Reg[Rn];
+    return cpu->TFlag ? (cpu->Reg[15] + 4) : (cpu->Reg[15] + 8);
 }

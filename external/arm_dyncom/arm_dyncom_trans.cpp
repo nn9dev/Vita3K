@@ -1803,11 +1803,131 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(yield)(unsigned int inst, int index) {
     return inst_base;
 }
 
+// MOVW / MOVT (Thumb-2 T3/T1). `inst` = (hw1 << 16) | hw2 as assembled by the Thumb-2 decoder
+static ARM_INST_PTR INTERPRETER_TRANSLATE(mov16)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(mov16_inst));
+    mov16_inst* inst_cream = (mov16_inst*)inst_base->component;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    const u32 hw1 = inst >> 16;
+    const u32 hw2 = inst & 0xFFFF;
+    const u32 imm4 = hw1 & 0xF;         // hw1[3:0]
+    const u32 i = (hw1 >> 10) & 0x1;    // hw1[10]
+    const u32 imm3 = (hw2 >> 12) & 0x7; // hw2[14:12]
+    const u32 imm8 = hw2 & 0xFF;        // hw2[7:0]
+
+    inst_cream->Rd = (hw2 >> 8) & 0xF; // hw2[11:8]
+    inst_cream->imm16 = (imm4 << 12) | (i << 11) | (imm3 << 8) | imm8;
+
+    return inst_base;
+}
+
+// Expands a 12-bit Thumb-2 modified immediate (imm12 = i:imm3:imm8) to
+// 32 bits and reports whether the carry flag was affected and, if so, its value
+static u32 ThumbExpandImm(u32 imm12, bool* update_c, u32* carry) {
+    if ((imm12 & 0xC00) == 0) { // imm12[11:10] == 00
+        const u32 imm8 = imm12 & 0xFF;
+        *update_c = false;
+        *carry = 0;
+        switch ((imm12 >> 8) & 0x3) {
+        case 0: return imm8;
+        case 1: return (imm8 << 16) | imm8;
+        case 2: return (imm8 << 24) | (imm8 << 8);
+        default: return (imm8 << 24) | (imm8 << 16) | (imm8 << 8) | imm8;
+        }
+    }
+    // unrotated = '1':imm12[6:0], then rotated right by imm12[11:7] (>= 8)
+    const u32 unrot = 0x80 | (imm12 & 0x7F);
+    const u32 rot = (imm12 >> 7) & 0x1F;
+    const u32 result = (unrot >> rot) | (unrot << (32 - rot));
+    *update_c = true;
+    *carry = result >> 31;
+    return result;
+}
+
+// MOV{S}.W Rd, #const (T2, modified immediate)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_mov_imm)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_mov_imm_inst));
+    thumb2_mov_imm_inst* inst_cream = (thumb2_mov_imm_inst*)inst_base->component;
+
+    const u32 hw1 = inst >> 16;
+    const u32 hw2 = inst & 0xFFFF;
+    const u32 i = (hw1 >> 10) & 0x1;
+    const u32 imm3 = (hw2 >> 12) & 0x7;
+    const u32 imm8 = hw2 & 0xFF;
+    const u32 imm12 = (i << 11) | (imm3 << 8) | imm8;
+
+    bool update_c = false;
+    u32 carry = 0;
+    inst_cream->imm = ThumbExpandImm(imm12, &update_c, &carry);
+    inst_cream->update_c = update_c;
+    inst_cream->carry = carry;
+    inst_cream->Rd = (hw2 >> 8) & 0xF;
+    inst_cream->S = (hw1 >> 4) & 0x1;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+    return inst_base;
+}
+
+// BL (T1) / BLX (T2). hw2[12] selects BL (1) vs BLX (0)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_bl)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_bl_inst));
+    thumb2_bl_inst* inst_cream = (thumb2_bl_inst*)inst_base->component;
+
+    const u32 hw1 = inst >> 16;
+    const u32 hw2 = inst & 0xFFFF;
+    const u32 S = (hw1 >> 10) & 0x1;
+    const u32 imm10 = hw1 & 0x3FF; // imm10 (BL) / imm10H (BLX)
+    const u32 J1 = (hw2 >> 13) & 0x1;
+    const u32 J2 = (hw2 >> 11) & 0x1;
+    const u32 op = (hw2 >> 12) & 0x1; // 1 = BL, 0 = BLX
+    const u32 I1 = 1 ^ (J1 ^ S);
+    const u32 I2 = 1 ^ (J2 ^ S);
+
+    u32 imm;
+    if (op) { // BL
+        const u32 imm11 = hw2 & 0x7FF;
+        imm = (S << 24) | (I1 << 23) | (I2 << 22) | (imm10 << 12) | (imm11 << 1);
+    } else { // BLX
+        const u32 imm10L = (hw2 >> 1) & 0x3FF;
+        imm = (S << 24) | (I1 << 23) | (I2 << 22) | (imm10 << 12) | (imm10L << 2);
+    }
+    if (imm & 0x01000000) // sign-extend from bit 24
+        imm |= 0xFE000000;
+
+    inst_cream->imm = imm;
+    inst_cream->blx = !op;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::DIRECT_BRANCH; // ends the basic block
+    return inst_base;
+}
+
+// Unimplemented 32-bit Thumb-2 encoding decoded to a fake 4-byte skip
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_undef)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_undef_inst));
+    thumb2_undef_inst* inst_cream = (thumb2_undef_inst*)inst_base->component;
+
+    inst_cream->enc = inst;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+    return inst_base;
+}
+
 // Floating point VFPv3 instructions
 #define VFP_INTERPRETER_TRANS
 #include "skyeye_common/vfp/vfpinstr.cpp"
 #undef VFP_INTERPRETER_TRANS
 
+// this is synced with InstLabel and switch (inst_base->idx) in interpreter.cpp
 const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(vmla),
     INTERPRETER_TRANSLATE(vmls),
@@ -2008,7 +2128,14 @@ const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(swi),
     INTERPRETER_TRANSLATE(bbl),
 
-    // All the thumb instructions should be placed the end of table
+    // thumb2
+    INTERPRETER_TRANSLATE(thumb2_mov_imm), // MOV{S}.W #imm (arm_instruction_trans_len - 10)
+    INTERPRETER_TRANSLATE(mov16),        // MOVW         (arm_instruction_trans_len - 9)
+    INTERPRETER_TRANSLATE(mov16),        // MOVT         (arm_instruction_trans_len - 8)
+    INTERPRETER_TRANSLATE(thumb2_bl),    // BL/BLX       (arm_instruction_trans_len - 7)
+    INTERPRETER_TRANSLATE(thumb2_undef), // unimpl. skip (arm_instruction_trans_len - 6)
+
+    // All the thumb-exclusive instructions should be placed the end of table
     INTERPRETER_TRANSLATE(b_2_thumb),
     INTERPRETER_TRANSLATE(b_cond_thumb),
     INTERPRETER_TRANSLATE(bl_1_thumb),
