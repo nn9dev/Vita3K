@@ -302,6 +302,19 @@ ThumbDecodeStatus TranslateThumbInstruction(u32 addr, u32 instr, u32* ainstr, u3
                           | (BITS(tinstr, 0, 2) << 12) // Rd
                           | BITS(tinstr, 3, 5);        // Rm
             }
+        } else if ((tinstr & 0x0500) == 0x0100) {
+            // CBZ (case 22, op=0) / CBNZ (case 23, op=1): 1011 op 0 i 1 imm5 Rn.
+            // CBZ and CBNZ handled by DecodeThumbInstruction based on this BRANCH
+            valid = ThumbDecodeStatus::BRANCH;
+        } else if ((tinstr & 0x0F00) == 0x0F00) {
+
+            if ((tinstr & 0xF) != 0) {
+                // IT handled by DecodeThumbInstruction based on this BRANCH
+                valid = ThumbDecodeStatus::BRANCH;
+            } else {
+                // NOP & hints
+                *ainstr = 0xE320F000 | ((tinstr >> 4) & 0xF);
+            }
         } else {
             static const u32 subset[4] = {
                 0xE92D0000, // STMDB sp!,{rlist}

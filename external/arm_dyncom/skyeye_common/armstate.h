@@ -146,6 +146,20 @@ enum {
     RUN = 3         // Continuous execution
 };
 
+struct ITState {
+    static bool InBlock(u8 v) { return (v & 0x0F) != 0; }
+    static bool LastInBlock(u8 v) { return (v & 0x0F) == 0x08; }
+    // Condition to apply to the next in-block instruction, AL (0xE) when not
+    // in a block so callers can override unconditionally without a branch
+    static u8 Cond(u8 v) { return (v & 0x0F) == 0 ? 0xE : ((v >> 4) & 0xF); }
+    // shift cond bits left by one
+    static u8 Advance(u8 v) {
+        if ((v & 0x07) == 0)
+            return 0;
+        return static_cast<u8>((v & 0xE0) | ((v << 1) & 0x1F));
+    }
+};
+
 struct ARMul_State final {
 public:
     explicit ARMul_State(MemState* mem, PrivilegeMode initial_mode);
@@ -241,6 +255,9 @@ public:
 
     u32 TFlag; // Thumb state
 
+    u8 IT_state = 0;
+    bool IT_just_set = false;
+
     unsigned long long NumInstrs; // The number of instructions executed
     u64 NumInstrsToExecute;
 
@@ -253,9 +270,15 @@ public:
     unsigned bigendSig;
     unsigned syscallSig;
 
+    // Instruction cache keyed on PC & IT state packed into u64
+    // dynarmic uses this trick for IT :)
     // TODO(bunnei): Move this cache to a better place - it should be per codeset (likely per
     // process for our purposes), not per ARMul_State (which tracks CPU core state).
-    std::unordered_map<u32, std::size_t> instruction_cache;
+    std::unordered_map<u64, std::size_t> instruction_cache;
+
+    u64 MakeCacheKey(u32 pc) const {
+        return static_cast<u64>(pc) | (static_cast<u64>(IT_state) << 32);
+    }
 
 private:
     void ResetMPCoreCP15Registers();

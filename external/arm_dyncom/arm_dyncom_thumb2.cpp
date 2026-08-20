@@ -33,11 +33,11 @@
 // an `arm_inst`, the final structure that the interp/translator operates on
 
 enum : int {
-    THUMB2_IDX_MOV_IMM = 10, // arm_instruction_trans_len - 10 (MOV{S}.W #imm)
-    THUMB2_IDX_MOVW = 9,     // arm_instruction_trans_len - 9
-    THUMB2_IDX_MOVT = 8,     // arm_instruction_trans_len - 8
-    THUMB2_IDX_BL = 7,       // arm_instruction_trans_len - 7  (BL and BLX)
-    THUMB2_IDX_UNDEF = 6,    // arm_instruction_trans_len - 6  (unimplemented skip)
+    THUMB2_IDX_MOV_IMM = 12, // arm_instruction_trans_len - 12 (MOV{S}.W #imm)
+    THUMB2_IDX_MOVW = 11,    // arm_instruction_trans_len - 11
+    THUMB2_IDX_MOVT = 10,    // arm_instruction_trans_len - 10
+    THUMB2_IDX_BL = 9,       // arm_instruction_trans_len - 9  (BL and BLX)
+    THUMB2_IDX_UNDEF = 8,    // arm_instruction_trans_len - 8  (unimplemented skip)
 };
 
 // Report each distinct top-level 32-bit encoding class once, so the log reads as

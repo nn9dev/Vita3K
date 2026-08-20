@@ -469,6 +469,16 @@ struct blx_1_thumb {
     unsigned int instr;
 };
 
+struct thumb_cbz {
+    unsigned int Rn;
+    unsigned int imm;
+    unsigned int nonzero;  // 0 = CBZ, 1 = CBNZ
+};
+
+struct thumb_it {
+    unsigned int imm8;
+};
+
 struct pkh_inst {
     unsigned int Rm;
     unsigned int Rn;

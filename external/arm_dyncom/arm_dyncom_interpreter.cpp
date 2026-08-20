@@ -769,7 +769,22 @@ static ThumbDecodeStatus DecodeThumbInstruction(u32 inst, u32 addr, u32* arm_ins
         int table_length = static_cast<int>(arm_instruction_trans_len);
         u32 tinstr = GetThumbInstruction(inst, addr);
 
+        // special blocks for thumb2 16-bit instructions that don't map on to ARM instructions
         switch ((tinstr & 0xF800) >> 11) {
+        case 22: // CBZ  (1011 0 0 i 1 imm5 Rn)
+        case 23: // CBNZ (1011 1 0 i 1 imm5 Rn) or IT (1011 1111 firstcond mask, mask != 0)
+            if ((tinstr & 0x0500) == 0x0100) {
+                // CBZ / CBNZ 
+                inst_index = table_length - 7;
+                *ptr_inst_base = arm_instruction_trans[inst_index](tinstr, inst_index);
+            } else if ((tinstr & 0x0F00) == 0x0F00 && (tinstr & 0xF) != 0) {
+                // IT 
+                inst_index = table_length - 6;
+                *ptr_inst_base = arm_instruction_trans[inst_index](tinstr, inst_index);
+            } else {
+                LOG_ERROR("thumb decoder: unexpected BRANCH for 1011x @ {:#X}", addr);
+            }
+            break;
         case 26:
         case 27:
             if (((tinstr & 0x0F00) != 0x0E00) && ((tinstr & 0x0F00) != 0x0F00)) {
@@ -869,8 +884,16 @@ static int InterpreterTranslateBlock(ARMul_State* cpu, std::size_t& bb_start, u3
     u32 phys_addr = addr;
     u32 pc_start = cpu->Reg[15];
 
+    u8 pending_IT = cpu->IT_state;
+
     while (ret == TransExtData::NON_BRANCH) {
         u32 inst_size = InterpreterTranslateInstruction(cpu, phys_addr, inst_base);
+
+        if (ITState::InBlock(pending_IT)) {
+            inst_base->cond = ITState::Cond(pending_IT);
+            pending_IT = ITState::Advance(pending_IT);
+        }
+
         phys_addr += inst_size;
 
         if ((phys_addr & 0xfff) == 0) {
@@ -879,7 +902,7 @@ static int InterpreterTranslateBlock(ARMul_State* cpu, std::size_t& bb_start, u3
         ret = inst_base->br;
     };
 
-    cpu->instruction_cache[pc_start] = bb_start;
+    cpu->instruction_cache[cpu->MakeCacheKey(pc_start)] = bb_start;
 
     return KEEP_GOING;
 }
@@ -898,7 +921,7 @@ static int InterpreterTranslateSingle(ARMul_State* cpu, std::size_t& bb_start, u
         inst_base->br = TransExtData::SINGLE_STEP;
     }
 
-    cpu->instruction_cache[pc_start] = bb_start;
+    cpu->instruction_cache[cpu->MakeCacheKey(pc_start)] = bb_start;
 
     return KEEP_GOING;
 }
@@ -958,6 +981,10 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
 #define FETCH_INST                                                                                 \
     if (inst_base->br != TransExtData::NON_BRANCH)                                                 \
         goto DISPATCH;                                                                             \
+    if (cpu->IT_just_set)                                                                          \
+        cpu->IT_just_set = false;                                                                  \
+    else                                                                                           \
+        cpu->IT_state = ITState::Advance(cpu->IT_state);                                           \
     inst_base = (arm_inst*)&trans_cache_buf[ptr]
 
 #define INC_PC(l) ptr += sizeof(arm_inst) + l
@@ -1412,14 +1439,16 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
 #define UPDATE_CFLAG_WITH_SC (cpu->CFlag = cpu->shifter_carry_out)
 
 #define SAVE_NZCVT                                                                                 \
-    cpu->Cpsr = (cpu->Cpsr & 0x0fffffdf) | (cpu->NFlag << 31) | (cpu->ZFlag << 30) |               \
-                (cpu->CFlag << 29) | (cpu->VFlag << 28) | (cpu->TFlag << 5)
+    cpu->Cpsr = (cpu->Cpsr & 0x09FF03DF) | (cpu->NFlag << 31) | (cpu->ZFlag << 30) |               \
+                (cpu->CFlag << 29) | (cpu->VFlag << 28) | (cpu->TFlag << 5) |                      \
+                ((cpu->IT_state & 0xFC) << 8) | ((cpu->IT_state & 0x03) << 25)
 #define LOAD_NZCVT                                                                                 \
     cpu->NFlag = (cpu->Cpsr >> 31);                                                                \
     cpu->ZFlag = (cpu->Cpsr >> 30) & 1;                                                            \
     cpu->CFlag = (cpu->Cpsr >> 29) & 1;                                                            \
     cpu->VFlag = (cpu->Cpsr >> 28) & 1;                                                            \
-    cpu->TFlag = (cpu->Cpsr >> 5) & 1;
+    cpu->TFlag = (cpu->Cpsr >> 5) & 1;                                                             \
+    cpu->IT_state = static_cast<u8>(((cpu->Cpsr >> 8) & 0xFC) | ((cpu->Cpsr >> 25) & 0x03));
 
 #define PC (cpu->Reg[15])
 
@@ -1629,6 +1658,8 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
                          &&MOVT_INST,
                          &&THUMB2_BL_INST,
                          &&THUMB2_UNDEF_INST,
+                         &&THUMB_CBZ_INST,
+                         &&THUMB_IT_INST,
                          &&B_2_THUMB,
                          &&B_COND_THUMB,
                          &&BL_1_THUMB,
@@ -1649,6 +1680,11 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
 
     LOAD_NZCVT;
 DISPATCH: {
+    if (cpu->IT_just_set)
+        cpu->IT_just_set = false;
+    else
+        cpu->IT_state = ITState::Advance(cpu->IT_state);
+
     if (!cpu->NirqSig) {
         if (!(cpu->Cpsr & 0x80)) {
             goto END;
@@ -1661,7 +1697,8 @@ DISPATCH: {
         cpu->Reg[15] &= 0xfffffffc;
 
     // Find the cached instruction cream, otherwise translate it...
-    auto itr = cpu->instruction_cache.find(cpu->Reg[15]);
+    // Key includes IT_state so an in-IT PC never collides with a non-IT PC.
+    auto itr = cpu->instruction_cache.find(cpu->MakeCacheKey(cpu->Reg[15]));
     if (itr != cpu->instruction_cache.end()) {
         ptr = itr->second;
     } else if (cpu->NumInstrsToExecute != 1) {
@@ -1846,6 +1883,26 @@ THUMB2_BL_INST: {
         cpu->Reg[15] = pc + inst_cream->imm;
     }
     INC_PC(sizeof(thumb2_bl_inst));
+    goto DISPATCH;
+}
+THUMB_CBZ_INST: {
+    thumb_cbz* inst_cream = (thumb_cbz*)inst_base->component;
+    const u32 rn_val = cpu->Reg[inst_cream->Rn];
+    const bool taken = inst_cream->nonzero ? (rn_val != 0) : (rn_val == 0);
+    if (taken)
+        cpu->Reg[15] = cpu->Reg[15] + 4 + inst_cream->imm;  // Thumb read-PC = current + 4
+    else
+        cpu->Reg[15] += inst_base->size;    // should be 2
+    INC_PC(sizeof(thumb_cbz));
+    goto DISPATCH;
+}
+THUMB_IT_INST: {
+    thumb_it* inst_cream = (thumb_it*)inst_base->component;
+    cpu->IT_state = static_cast<u8>(inst_cream->imm8);
+    // tell DISPATCH not to eat the flag for one cycle
+    cpu->IT_just_set = true;
+    cpu->Reg[15] += inst_base->size;   // advance past IT itself (16-bit)
+    INC_PC(sizeof(thumb_it));
     goto DISPATCH;
 }
 THUMB2_UNDEF_INST: {
