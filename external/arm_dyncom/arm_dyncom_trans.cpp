@@ -1666,6 +1666,31 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(b_cond_thumb)(unsigned int tinst, int 
     return inst_base;
 }
 
+// CBZ / CBNZ (only has a thumb1 16-bit encoding)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb_cbz)(unsigned int tinst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb_cbz));
+    thumb_cbz* inst_cream = (thumb_cbz*)inst_base->component;
+
+    inst_cream->Rn = tinst & 0x7;
+    inst_cream->imm = (((tinst >> 9) & 0x1) << 6) | (((tinst >> 3) & 0x1F) << 1);
+    inst_cream->nonzero = (tinst >> 11) & 0x1;
+
+    inst_base->idx = index;
+    inst_base->br = TransExtData::DIRECT_BRANCH;
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb_it)(unsigned int tinst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb_it));
+    thumb_it* inst_cream = (thumb_it*)inst_base->component;
+
+    inst_cream->imm8 = tinst & 0xFF;
+
+    inst_base->idx = index;
+    inst_base->br = TransExtData::DIRECT_BRANCH;
+    return inst_base;
+}
+
 static ARM_INST_PTR INTERPRETER_TRANSLATE(bl_1_thumb)(unsigned int tinst, int index) {
     arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(bl_1_thumb));
     bl_1_thumb* inst_cream = (bl_1_thumb*)inst_base->component;
@@ -2128,12 +2153,15 @@ const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(swi),
     INTERPRETER_TRANSLATE(bbl),
 
-    // thumb2
-    INTERPRETER_TRANSLATE(thumb2_mov_imm), // MOV{S}.W #imm (arm_instruction_trans_len - 10)
-    INTERPRETER_TRANSLATE(mov16),        // MOVW         (arm_instruction_trans_len - 9)
-    INTERPRETER_TRANSLATE(mov16),        // MOVT         (arm_instruction_trans_len - 8)
-    INTERPRETER_TRANSLATE(thumb2_bl),    // BL/BLX       (arm_instruction_trans_len - 7)
-    INTERPRETER_TRANSLATE(thumb2_undef), // unimpl. skip (arm_instruction_trans_len - 6)
+    // thumb2 
+    INTERPRETER_TRANSLATE(thumb2_mov_imm), // MOV{S}.W #imm (arm_instruction_trans_len - 12)
+    INTERPRETER_TRANSLATE(mov16),        // MOVW         (arm_instruction_trans_len - 11)
+    INTERPRETER_TRANSLATE(mov16),        // MOVT         (arm_instruction_trans_len - 10)
+    INTERPRETER_TRANSLATE(thumb2_bl),    // BL/BLX       (arm_instruction_trans_len - 9)
+    INTERPRETER_TRANSLATE(thumb2_undef), // unimpl. skip (arm_instruction_trans_len - 8)
+
+    INTERPRETER_TRANSLATE(thumb_cbz),     // CBZ / CBNZ   (arm_instruction_trans_len - 7)
+    INTERPRETER_TRANSLATE(thumb_it),      // IT           (arm_instruction_trans_len - 6)
 
     // All the thumb-exclusive instructions should be placed the end of table
     INTERPRETER_TRANSLATE(b_2_thumb),

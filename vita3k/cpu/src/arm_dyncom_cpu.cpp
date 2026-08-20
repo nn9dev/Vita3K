@@ -30,9 +30,9 @@
 // only syncs them with Cpsr at run-loop boundaries (LOAD_NZCVT on entry,
 // SAVE_NZCVT on exit). Consequently Cpsr is authoritative outside InterpreterMainLoop,
 // so all the accessors below read/write Cpsr directly, like how DynarmicCPU
-// treats jit->Cpsr(). 
+// treats jit->Cpsr().
 
-// Only user mode (USER32MODE) is emulated. Vita3K processes SVCs as HLE 
+// Only user mode (USER32MODE) is emulated. Vita3K processes SVCs as HLE
 // rather than through ARM mode switches, so the banked
 // register sets are never exercised, mirroring dynarmic's usermode model
 

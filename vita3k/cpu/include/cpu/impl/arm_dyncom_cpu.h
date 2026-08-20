@@ -25,7 +25,7 @@
 // The ArmDynCom state defined by armstate.h is forward declared here so
 // the skyeye headers (which pull in redeclared int types) stay out
 // The Arm_DynCom interpreter is/was pulled from Citra (now Azahar) and refactored
-// to work under the Vita3K codebase 
+// to work under the Vita3K codebase
 // (also had/have to move the whole ISA up from armv6k to armv7-a but whatever)
 struct ARMul_State;
 
