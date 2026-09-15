@@ -554,7 +554,7 @@ EXPORT(int, sceAppUtilSystemParamGetString, unsigned int paramId, SceChar8 *buf,
         // fallback to hostname
         if (*buf == 0) {
             char devname[SCE_SYSTEM_PARAM_USERNAME_MAXSIZE];
-            if(gethostname(devname, SCE_SYSTEM_PARAM_USERNAME_MAXSIZE) == 0) {
+            if (gethostname(devname, SCE_SYSTEM_PARAM_USERNAME_MAXSIZE) == 0) {
                 std::strncpy(reinterpret_cast<char *>(buf), devname, copySize);
                 buf[copySize - 1] = '\0';
             }
