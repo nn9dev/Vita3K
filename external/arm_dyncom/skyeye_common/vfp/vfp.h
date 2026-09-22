@@ -41,3 +41,4 @@ void VMOVBRRD(ARMul_State* state, u32 to_arm, u32 t, u32 t2, u32 n, u32* value1,
 void VMOVBRRSS(ARMul_State* state, u32 to_arm, u32 t, u32 t2, u32 n, u32* value1, u32* value2);
 void VMOVI(ARMul_State* state, u32 single, u32 d, u32 imm);
 void VMOVR(ARMul_State* state, u32 single, u32 d, u32 imm);
+u32 VCVTBHS(ARMul_State* state, u32 inst);

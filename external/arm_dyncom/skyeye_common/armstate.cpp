@@ -393,6 +393,10 @@ u32 ARMul_State::ReadCP15Register(u32 crn, u32 opcode_1, u32 crm, u32 opcode_2) 
 
             if (opcode_2 == 1)
                 return CP15[CP15_WFAR];
+
+            // opcode_2 == 2 would be IFAR (Instruction Fault Address Register),
+            // which is not here because neither Vita3K nor dynarmic care about IFAR
+            // The slot CP15[CP15_IFAR] still exists for future use
         }
 
         if (crn == 7 && opcode_1 == 0 && crm == 4 && opcode_2 == 0)
@@ -492,6 +496,7 @@ void ARMul_State::WriteCP15Register(u32 value, u32 crn, u32 opcode_1, u32 crm, u
                 CP15[CP15_FAULT_ADDRESS] = value;
             else if (opcode_2 == 1)
                 CP15[CP15_WFAR] = value;
+            // opcode_2 == 2 (IFAR write)
         } else if (crn == 7 && opcode_1 == 0) {
             if (crm == 0 && opcode_2 == 4) {
                 CP15[CP15_WAIT_FOR_INTERRUPT] = value;

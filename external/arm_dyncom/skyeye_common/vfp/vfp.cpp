@@ -87,6 +87,148 @@ void VMOVR(ARMul_State* state, u32 single, u32 d, u32 m) {
     }
 }
 
+// IEEE-754 half-precision <-> single-precision conversion for VCVTB/VCVTT
+// Half -> single is exact or a signalling NaN raises Invalid
+// Single -> half honours the FPSCR rounding mode and reports Invalid/Overflow/Underflow/Inexact
+// Modeled after the mbitsnbites/softfp w/ halves implementation (in turn based on Fabrice Bellard) made into self-contained functions
+static u32 vfp_half_to_single(u16 half, u32* exceptions) {
+    static constexpr u32 F32_INF = 0x7F800000u;
+    static constexpr u32 F32_QUIET_NAN = 0x7FC00000u;
+    static constexpr u32 F16_MAX_EXPONENT = 0x1F;
+
+    const u32 sign = (u32)(half & 0x8000) << 16;
+    u32 exponent = (half >> 10) & 0x1F;
+    u32 mantissa = half & 0x3FF;
+
+    if (exponent == 0) {
+        if (mantissa == 0)
+            return sign; // +/- zero
+        // subnormal half -> normalised single
+        exponent = 127 - 15 + 1;
+        do {
+            mantissa <<= 1;
+            exponent--;
+        } while (!(mantissa & 0x400));
+        return sign | (exponent << 23) | ((mantissa & 0x3FF) << 13);
+    }
+    if (exponent == F16_MAX_EXPONENT) {
+        if (mantissa == 0)
+            return sign | F32_INF; // +/- infinity
+        if (!(mantissa & 0x200)) // signalling NaN -> invalid
+            *exceptions |= FPSCR_IOC;
+        return sign | F32_QUIET_NAN | (mantissa << 13); // quiet NaN w/ payload preserved
+    }
+    return sign | ((exponent - 15 + 127) << 23) | (mantissa << 13); // normal
+}
+
+static u16 vfp_single_to_half(u32 single, u32 fpscr, u32* exceptions) {
+    static constexpr u16 F16_INF = 0x7C00;
+    static constexpr u16 F16_QUIET_NAN = 0x7E00;
+    static constexpr u16 F16_MAX_EXPONENT = 0x1F;
+    static constexpr u16 F32_MAX_EXPONENT = 0xFF;
+
+    const u32 s_sign = (single >> 16) & 0x8000;
+    const s32 s_exponent = (single >> 23) & 0xFF;
+    const u32 s_mantissa = single & 0x7FFFFF;
+    const u32 rmode = fpscr & FPSCR_RMODE_MASK; // rounding mode
+
+    if (s_exponent == F32_MAX_EXPONENT) {
+        if (s_mantissa == 0)
+            return (u16)(s_sign | F16_INF); // infinity
+        if (!(s_mantissa & 0x400000)) // signalling NaN -> invalid
+            *exceptions |= FPSCR_IOC;
+        return (u16)(s_sign | F16_QUIET_NAN | (s_mantissa >> 13)); // quiet NaN, payload truncated
+    }
+    if (s_exponent == 0 && s_mantissa == 0)
+        return (u16)s_sign; // +/- zero
+
+    // Half's biased exponent for a 1.f significand, plus the 24-bit significand
+    s32 h_exponent = s_exponent - 127 + 15;
+    u32 s_significand = s_mantissa | (s_exponent ? 0x800000u : 0u);
+    if (s_exponent == 0)
+        h_exponent += 1; // single subnormal
+
+    if (h_exponent >= F16_MAX_EXPONENT) { // magnitude too large -> overflow
+        *exceptions |= FPSCR_OFC | FPSCR_IXC;
+        const bool to_inf = (rmode == FPSCR_ROUND_NEAREST) ||
+                            (rmode == FPSCR_ROUND_PLUSINF && s_sign == 0) ||
+                            (rmode == FPSCR_ROUND_MINUSINF && s_sign != 0);
+        return (u16)(s_sign | (to_inf ? F16_INF : F16_INF - 0b1)); // infinity or largest finite (inf-1)
+    }
+
+    // An f32 has 23 mantissa bits, f16 has 10. Keep the top 10 and drop the bottom 13
+    int shift = 13; 
+    bool is_subnormal = false;
+    if (h_exponent <= 0) { // result is a half subnormal (or underflows to zero)
+        shift += 1 - h_exponent;
+        h_exponent = 0;
+        is_subnormal = true;
+    }
+
+    if (shift >= 32)
+        return (u16)s_sign; // underflows to zero (all bits dropped)
+
+    const u32 dropped_bits = s_significand & ((1u << shift) - 1);
+    u32 h_significand = s_significand >> shift;
+    const u32 halfway = 1u << (shift - 1);
+
+    bool round_up;
+    if (rmode == FPSCR_ROUND_NEAREST)
+        round_up = (dropped_bits > halfway) || ((dropped_bits == halfway) && (h_significand & 1)); // ties to even
+    else {
+        // Rounds toward +inf
+        if (rmode == FPSCR_ROUND_PLUSINF)
+            round_up = ((dropped_bits != 0) && (s_sign == 0));
+        else if (rmode == FPSCR_ROUND_MINUSINF)
+            round_up = ((dropped_bits != 0) && (s_sign != 0));
+        else 
+            round_up = false; // TOZERO
+    }
+    if (round_up)
+        h_significand += 1;
+
+    if (dropped_bits != 0) {
+        *exceptions |= FPSCR_IXC;
+        if (is_subnormal)
+            *exceptions |= FPSCR_UFC;
+    }
+
+    // Rounding can carry the significand into the next bit, creating a subnormal->normal mistake 
+    // or a mantissa overflow that bumps the exponent
+    if (is_subnormal)
+        return (u16)(s_sign | (h_significand & 0x7FF)); // if bit10 is set the half is promoted to exp==1
+    if (h_significand & 0x800) {
+        h_significand >>= 1;
+        h_exponent += 1;
+    }
+    if (h_exponent >= F16_MAX_EXPONENT) { // rounding pushed us to overflow
+        *exceptions |= FPSCR_OFC;
+        return (u16)(s_sign | F16_INF);
+    }
+    return (u16)(s_sign | (h_exponent << 10) | (h_significand & 0x3FF));
+}
+
+// VCVTB/VCVTT, half<->single conversion
+// word[16]=0 half->single, else single->half
+// word[7]=1 uses the top halfword [31:16] of the F16 side, else the bottom [15:0]
+u32 VCVTBHS(ARMul_State* state, u32 inst) {
+    const u32 d = ((inst >> 11) & 0x1E) | ((inst >> 22) & 1); // Vd:D
+    const u32 m = ((inst << 1) & 0x1E) | ((inst >> 5) & 1);   // Vm:M
+    const u32 op = (inst >> 16) & 1;
+    const u32 top = (inst >> 7) & 1;
+    u32 exceptions = 0;
+
+    if (op == 0) { // half -> single
+        const u16 half = (u16)(state->ExtReg[m] >> (top ? 16 : 0));
+        state->ExtReg[d] = vfp_half_to_single(half, &exceptions);
+    } else { // single -> half, merged into the selected halfword of Sd
+        const u16 half = vfp_single_to_half(state->ExtReg[m], state->VFP[VFP_FPSCR], &exceptions);
+        const u32 keep = state->ExtReg[d] & (top ? 0x0000FFFFu : 0xFFFF0000u);
+        state->ExtReg[d] = keep | ((u32)half << (top ? 16 : 0));
+    }
+    return exceptions;
+}
+
 /* Miscellaneous functions */
 s32 vfp_get_float(ARMul_State* state, unsigned int reg) {
     LOG_TRACE("VFP get float: s{}=[{:08x}]", reg, state->ExtReg[reg]);

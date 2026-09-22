@@ -54,8 +54,9 @@ int ArmDynComCPU::run() {
     break_ = false;
     parent->svc_called = false;
     state->svc_called = false;
+    state->wfi_halt = false;
 
-    // Run until the interpreter stops itself (SVC, breakpoint)
+    // Run until the interpreter stops itself (SVC, breakpoint, WFI)
     // or propmpted by stop() zeroing NumInstrsToExecute
     // dynarmic_cpu also does `1ull << 60;` so :)
     state->NumInstrsToExecute = 1ull << 60;
@@ -65,6 +66,8 @@ int ArmDynComCPU::run() {
         parent->svc_called = true;
         parent->svc = state->svc;
     }
+    if (state->wfi_halt)
+        halted = true; // WFI trap
 
     return halted;
 }
@@ -72,6 +75,7 @@ int ArmDynComCPU::run() {
 int ArmDynComCPU::step() {
     parent->svc_called = false;
     state->svc_called = false;
+    state->wfi_halt = false;
 
     state->NumInstrsToExecute = 1;
     InterpreterMainLoop(state.get());
@@ -80,8 +84,10 @@ int ArmDynComCPU::step() {
         parent->svc_called = true;
         parent->svc = state->svc;
     }
+    if (state->wfi_halt)
+        halted = true;
 
-    return 0;
+    return halted;
 }
 
 void ArmDynComCPU::stop() {

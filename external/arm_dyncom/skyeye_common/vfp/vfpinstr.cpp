@@ -906,6 +906,46 @@ VCVTBFI_INST : {
 #endif
 
 /* ----------------------------------------------------------------------- */
+/* VCVTB / VCVTT between half-precision and single-precision (VFPv3) */
+/* cond 1110 1D11 001o Vd-- 1010 T1M0 Vm-- */
+#ifdef VFP_INTERPRETER_STRUCT
+struct vcvtbhs_inst {
+    unsigned int instr;
+};
+#endif
+#ifdef VFP_INTERPRETER_TRANS
+static ARM_INST_PTR INTERPRETER_TRANSLATE(vcvtbhs)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(vcvtbhs_inst));
+    vcvtbhs_inst* inst_cream = (vcvtbhs_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->instr = inst;
+
+    return inst_base;
+}
+#endif
+#ifdef VFP_INTERPRETER_IMPL
+VCVTBHS_INST : {
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        CHECK_VFP_ENABLED;
+
+        vcvtbhs_inst* inst_cream = (vcvtbhs_inst*)inst_base->component;
+
+        int ret = VCVTBHS(cpu, inst_cream->instr);
+
+        CHECK_VFP_CDP_RET;
+    }
+    cpu->Reg[15] += inst_base->size;
+    INC_PC(sizeof(vcvtbhs_inst));
+    FETCH_INST;
+    GOTO_NEXT_INST;
+}
+#endif
+
+/* ----------------------------------------------------------------------- */
 /* MRC / MCR instructions */
 /* cond 1110 AAAL XXXX XXXX 101C XBB1 XXXX */
 /* cond 1110 op11 CRn- Rt-- copr op21 CRm- */
