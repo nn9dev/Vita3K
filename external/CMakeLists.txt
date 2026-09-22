@@ -145,6 +145,7 @@ if(ENABLE_ARM_DYNCOM)
 		arm_dyncom/arm_dyncom_interpreter.cpp
 		arm_dyncom/arm_dyncom_dec.cpp
 		arm_dyncom/arm_dyncom_thumb.cpp
+		arm_dyncom/arm_dyncom_thumb2.cpp
 		arm_dyncom/arm_dyncom_trans.cpp
 		arm_dyncom/skyeye_common/armstate.cpp
 		arm_dyncom/skyeye_common/armsupp.cpp

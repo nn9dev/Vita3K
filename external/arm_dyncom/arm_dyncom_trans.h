@@ -296,6 +296,22 @@ struct ssat_inst {
     unsigned int shift_type;
 };
 
+// BFC / BFI, BFC is BFI with Rn == 15
+struct bfi_inst {
+    unsigned int Rd;
+    unsigned int Rn;
+    unsigned int lsb;
+    unsigned int msb;
+};
+
+// SBFX / UBFX
+struct bfx_inst {
+    unsigned int Rd;
+    unsigned int Rn;
+    unsigned int lsb;
+    unsigned int widthm1;
+};
+
 struct umaal_inst {
     unsigned int Rn;
     unsigned int Rm;
@@ -508,17 +524,90 @@ struct thumb2_bl_inst {
     unsigned int blx;
 };
 
-// `enc` keeps (hw1<<16)|hw2 for debugging
+// enc keeps the full instruction
 struct thumb2_undef_inst {
     unsigned int enc;
 };
 
-struct thumb2_mov_imm_inst {
+struct thumb2_ldstrex_inst {
+    unsigned int Rn;
+    unsigned int Rt;
     unsigned int Rd;
     unsigned int imm;
+};
+
+// For thumb2 data operations with an immediate value
+struct thumb2_data_imm_inst {
+    unsigned int op;       // Thumb2DataOp
+    unsigned int Rd;
+    unsigned int Rn;
+    unsigned int imm;
     unsigned int S;
-    unsigned int update_c;
-    unsigned int carry;
+    unsigned int update_c; // whether the expanded immediate sets C
+    unsigned int carry;    // the C value to apply when update_c
+};
+
+struct thumb2_data_reg_inst {
+    unsigned int op;         // Thumb2DataOp
+    unsigned int Rd;
+    unsigned int Rn;
+    unsigned int Rm;
+    unsigned int shift_type; // raw type field (0=LSL,1=LSR,2=ASR,3=ROR/RRX)
+    unsigned int shift_amount; // imm5 shifter
+    unsigned int S;
+};
+
+// Data-processing, register-controlled shift, LSL/LSR/ASR/ROR by Rs[7:0]
+struct thumb2_shift_reg_inst {
+    unsigned int Rd;
+    unsigned int Rm;
+    unsigned int Rs;
+    unsigned int shift_type; // 0=LSL,1=LSR,2=ASR,3=ROR
+    unsigned int S;
+};
+
+// Plain-binary 12-bit immediate ADD/SUB (ADDW/SUBW, ADR, ADD/SUB SP)
+struct thumb2_addw_inst {
+    unsigned int Rd;
+    unsigned int Rn;
+    unsigned int imm;
+    unsigned int sub; // 0 = ADD, 1 = SUB
+};
+
+// Halfword Signed Load & Store (Thumb2 LDRH/STRH/LDRSB/LDRSH)
+// separated from the word/byte forms due to the thumb imm12 (need their own handler)
+struct thumb2_ldst_hs_inst {
+    unsigned int Rt;
+    unsigned int Rn;
+    unsigned int Rm;       // register-offset form
+    unsigned int imm;      // immediate-offset magnitude
+    unsigned int shift;    // LSL amount (imm2) for the register form
+    unsigned int U;        // 1 = add offset, 0 = subtract
+    unsigned int P;        // 1 = offset/pre-indexed (apply before access)
+    unsigned int W;        // writeback
+    unsigned int is_reg;   // register vs immediate offset
+    unsigned int is_half;  // 1 = halfword (16-bit), 0 = byte (8-bit, signed load only)
+    unsigned int is_signed;// sign-extend the loaded value
+    unsigned int is_load;  // 1 = load, 0 = store (halfword only)
+};
+
+// Dual Load & Store with Rt2 and imm8<<2 added to the thumb version
+struct thumb2_ldrd_inst {
+    unsigned int Rt;
+    unsigned int Rt2;
+    unsigned int Rn;
+    unsigned int imm;      // already scaled (imm8 << 2)
+    unsigned int U;        // 1 = add offset
+    unsigned int P;        // 1 = index (apply offset before access)
+    unsigned int W;        // writeback
+    unsigned int is_load;  // 1 = LDRD, 0 = STRD
+};
+
+// Thumb2 Table branch (TBB/TBH)
+struct thumb2_tb_inst {
+    unsigned int Rn;
+    unsigned int Rm;
+    unsigned int is_half; // 1 = TBH (halfword table), 0 = TBB (byte table)
 };
 
 typedef arm_inst* ARM_INST_PTR;

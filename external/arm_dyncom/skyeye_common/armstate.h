@@ -223,6 +223,7 @@ public:
 
     bool svc_called = false;
     u32 svc = 0;
+    bool wfi_halt = false;
 
     std::array<u32, 16> Reg{}; // The current register file
     std::array<u32, 2> Reg_usr{};
@@ -270,14 +271,15 @@ public:
     unsigned bigendSig;
     unsigned syscallSig;
 
-    // Instruction cache keyed on PC & IT state packed into u64
+    // Instruction cache keyed on PC, IT, and thumb state packed into u64
     // dynarmic uses this trick for IT :)
     // TODO(bunnei): Move this cache to a better place - it should be per codeset (likely per
     // process for our purposes), not per ARMul_State (which tracks CPU core state).
     std::unordered_map<u64, std::size_t> instruction_cache;
 
     u64 MakeCacheKey(u32 pc) const {
-        return static_cast<u64>(pc) | (static_cast<u64>(IT_state) << 32);
+        return static_cast<u64>(pc) | (static_cast<u64>(IT_state) << 32)
+                                    | (static_cast<u64>(TFlag) << 40);
     }
 
 private:

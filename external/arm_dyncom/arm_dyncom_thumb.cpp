@@ -363,7 +363,7 @@ ThumbDecodeStatus TranslateThumbInstruction(u32 addr, u32 instr, u32* ainstr, u3
         } else if ((tinstr & 0x0F00) != 0x0E00)
             valid = ThumbDecodeStatus::BRANCH;
         else //  UNDEFINED : cc=1110(AL) uses different format
-            valid = ThumbDecodeStatus::UNDEFINED;
+            valid = ThumbDecodeStatus::UNDEFINED;   // *ainstr = 0xE7F000F0; would be NOP
 
         break;
 

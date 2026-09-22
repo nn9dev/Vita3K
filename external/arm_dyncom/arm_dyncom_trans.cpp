@@ -3,6 +3,7 @@
 #include <util/log.h>
 #include "common/common_types.h"
 #include "arm_dyncom_trans.h"
+#include "arm_dyncom_thumb2.h"
 #include "skyeye_common/armstate.h"
 #include "skyeye_common/armsupp.h"
 #include "skyeye_common/vfp/vfp.h"
@@ -498,6 +499,59 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(ldrsh)(unsigned int inst, int index) {
 
     return inst_base;
 }
+// LDRHT / LDRSBT / LDRSHT / STRHT, halfword and signed-byte T-variants
+static ARM_INST_PTR INTERPRETER_TRANSLATE(ldrht)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(ldst_inst));
+    ldst_inst* inst_cream = (ldst_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->inst = inst;
+    inst_cream->get_addr = GetAddressingOp(inst);
+
+    return inst_base;
+}
+static ARM_INST_PTR INTERPRETER_TRANSLATE(ldrsbt)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(ldst_inst));
+    ldst_inst* inst_cream = (ldst_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->inst = inst;
+    inst_cream->get_addr = GetAddressingOp(inst);
+
+    return inst_base;
+}
+static ARM_INST_PTR INTERPRETER_TRANSLATE(ldrsht)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(ldst_inst));
+    ldst_inst* inst_cream = (ldst_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->inst = inst;
+    inst_cream->get_addr = GetAddressingOp(inst);
+
+    return inst_base;
+}
+static ARM_INST_PTR INTERPRETER_TRANSLATE(strht)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(ldst_inst));
+    ldst_inst* inst_cream = (ldst_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->inst = inst;
+    inst_cream->get_addr = GetAddressingOp(inst);
+
+    return inst_base;
+}
 static ARM_INST_PTR INTERPRETER_TRANSLATE(ldrt)(unsigned int inst, int index) {
     arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(ldst_inst));
     ldst_inst* inst_cream = (ldst_inst*)inst_base->component;
@@ -691,6 +745,17 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(nop)(unsigned int inst, int index) {
     arm_inst* const inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst));
 
     inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    return inst_base;
+}
+
+// UDF (permanently undefined)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(udf)(unsigned int inst, int index) {
+    arm_inst* const inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst));
+
+    inst_base->cond = 0xE; // AL
     inst_base->idx = index;
     inst_base->br = TransExtData::NON_BRANCH;
 
@@ -1850,48 +1915,29 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(mov16)(unsigned int inst, int index) {
     return inst_base;
 }
 
-// Expands a 12-bit Thumb-2 modified immediate (imm12 = i:imm3:imm8) to
-// 32 bits and reports whether the carry flag was affected and, if so, its value
-static u32 ThumbExpandImm(u32 imm12, bool* update_c, u32* carry) {
-    if ((imm12 & 0xC00) == 0) { // imm12[11:10] == 00
-        const u32 imm8 = imm12 & 0xFF;
-        *update_c = false;
-        *carry = 0;
-        switch ((imm12 >> 8) & 0x3) {
-        case 0: return imm8;
-        case 1: return (imm8 << 16) | imm8;
-        case 2: return (imm8 << 24) | (imm8 << 8);
-        default: return (imm8 << 24) | (imm8 << 16) | (imm8 << 8) | imm8;
-        }
-    }
-    // unrotated = '1':imm12[6:0], then rotated right by imm12[11:7] (>= 8)
-    const u32 unrot = 0x80 | (imm12 & 0x7F);
-    const u32 rot = (imm12 >> 7) & 0x1F;
-    const u32 result = (unrot >> rot) | (unrot << (32 - rot));
-    *update_c = true;
-    *carry = result >> 31;
-    return result;
-}
+// Data-processing (modified immediate) for thumb2
+// Thumb2 forms of AND/BIC/ORR/ORN/EOR/ADD/ADC/SBC/SUB/RSB and TST/TEQ/CMN/CMP/MVN all share this one translator
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_data_imm)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_data_imm_inst));
+    thumb2_data_imm_inst* inst_cream = (thumb2_data_imm_inst*)inst_base->component;
 
-// MOV{S}.W Rd, #const (T2, modified immediate)
-static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_mov_imm)(unsigned int inst, int index) {
-    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_mov_imm_inst));
-    thumb2_mov_imm_inst* inst_cream = (thumb2_mov_imm_inst*)inst_base->component;
+    const u32 i = BIT(inst, 26);         // hw1[10]
+    const u32 imm3 = BITS(inst, 12, 14); // hw2[14:12]
+    const u32 imm8 = BITS(inst, 0, 7);   // hw2[7:0]
+    const u32 imm12 = (i << 11) | (imm3 << 8) | imm8; // imm32 = ThumbExpandImm(imm12)
 
-    const u32 hw1 = inst >> 16;
-    const u32 hw2 = inst & 0xFFFF;
-    const u32 i = (hw1 >> 10) & 0x1;
-    const u32 imm3 = (hw2 >> 12) & 0x7;
-    const u32 imm8 = hw2 & 0xFF;
-    const u32 imm12 = (i << 11) | (imm3 << 8) | imm8;
+    const u32 Rn = BITS(inst, 16, 19);   // hw1[3:0]
+    const u32 Rd = BITS(inst, 8, 11);    // hw2[11:8]
 
     bool update_c = false;
     u32 carry = 0;
     inst_cream->imm = ThumbExpandImm(imm12, &update_c, &carry);
     inst_cream->update_c = update_c;
     inst_cream->carry = carry;
-    inst_cream->Rd = (hw2 >> 8) & 0xF;
-    inst_cream->S = (hw1 >> 4) & 0x1;
+    inst_cream->Rd = Rd;
+    inst_cream->Rn = Rn;
+    inst_cream->S = BIT(inst, 20);       // hw1[4]
+    inst_cream->op = thumb2_data_op(BITS(inst, 21, 24), Rn, Rd); // hw1[8:5]
 
     inst_base->cond = 0xE; // AL
     inst_base->idx = index;
@@ -1899,27 +1945,176 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_mov_imm)(unsigned int inst, int
     return inst_base;
 }
 
-// BL (T1) / BLX (T2). hw2[12] selects BL (1) vs BLX (0)
+// Data-processing (shifted register) for thumb2
+// the shift is applied at execute time since its carry-out depends on the live C flag for RRX / LSL
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_data_reg)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_data_reg_inst));
+    thumb2_data_reg_inst* inst_cream = (thumb2_data_reg_inst*)inst_base->component;
+
+    const u32 imm3 = BITS(inst, 12, 14); // hw2[14:12]
+    const u32 imm2 = BITS(inst, 6, 7);   // hw2[7:6]
+    const u32 Rn = BITS(inst, 16, 19);   // hw1[3:0]
+    const u32 Rd = BITS(inst, 8, 11);    // hw2[11:8]
+
+    inst_cream->Rm = BITS(inst, 0, 3);         // hw2[3:0]
+    inst_cream->shift_type = BITS(inst, 4, 5); // hw2[5:4]
+    inst_cream->shift_amount = (imm3 << 2) | imm2;
+    inst_cream->Rn = Rn;
+    inst_cream->Rd = Rd;
+    inst_cream->S = BIT(inst, 20);       // hw1[4]
+    inst_cream->op = thumb2_data_op(BITS(inst, 21, 24), Rn, Rd); // hw1[8:5]
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+    return inst_base;
+}
+
+// Data-processing (register): register-controlled shift LSL/LSR/ASR/ROR (T2)
+// A move of Rm shifted by Rs[7:0]. the shift (and its carry-out) happen at execute time
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_shift_reg)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_shift_reg_inst));
+    thumb2_shift_reg_inst* inst_cream = (thumb2_shift_reg_inst*)inst_base->component;
+
+    inst_cream->Rm = BITS(inst, 16, 19);        // hw1[3:0] = value to shift (Rn in the ARM ARM)
+    inst_cream->Rd = BITS(inst, 8, 11);         // hw2[11:8]
+    inst_cream->Rs = BITS(inst, 0, 3);          // hw2[3:0] = shift amount source (Rm in the ARM ARM)
+    inst_cream->shift_type = BITS(inst, 21, 22); // hw1[6:5]
+    inst_cream->S = BIT(inst, 20);              // hw1[4]
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+    return inst_base;
+}
+
+// Plain-binary 12-bit immediate ADD/SUB
+// ADDW/SUBW, ADR (Rn==15), ADD/SUB SP (Rn==13)
+// imm is the zero-extended i:imm3:imm8 (not ThumbExpandImm) and no flags are set
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_addw)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_addw_inst));
+    thumb2_addw_inst* inst_cream = (thumb2_addw_inst*)inst_base->component;
+
+    const u32 i = BIT(inst, 26);         // hw1[10]
+    const u32 imm3 = BITS(inst, 12, 14); // hw2[14:12]
+    const u32 imm8 = BITS(inst, 0, 7);   // hw2[7:0]
+
+    inst_cream->imm = (i << 11) | (imm3 << 8) | imm8;
+    inst_cream->Rn = BITS(inst, 16, 19); // hw1[3:0]
+    inst_cream->Rd = BITS(inst, 8, 11);  // hw2[11:8]
+    inst_cream->sub = BIT(inst, 23);     // hw1[7], 0 = ADDW/ADR-add, 1 = SUBW/ADR-sub
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+    return inst_base;
+}
+
+// Halfword Signed Load & Store (LDRH/STRH/LDRSB/LDRSH)
+// forms: literal (Rn==15), imm12 positive offset (hw1[7]), imm8 with P/U/W, and register (LSL #imm2)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_ldst_hs)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_ldst_hs_inst));
+    thumb2_ldst_hs_inst* inst_cream = (thumb2_ldst_hs_inst*)inst_base->component;
+
+    const u32 Rn = BITS(inst, 16, 19);        // hw1[3:0]
+    const u32 size = BITS(inst, 21, 22);      // hw1[6:5]: 1=halfword, 0=byte (signed load)
+    inst_cream->Rt = BITS(inst, 12, 15);      // hw2[15:12]
+    inst_cream->Rn = Rn;
+    inst_cream->is_half = (size == 1);
+    inst_cream->is_signed = BIT(inst, 24);    // hw1[8]
+    inst_cream->is_load = BIT(inst, 20);      // hw1[4]
+    inst_cream->is_reg = 0;
+    inst_cream->Rm = 0;
+    inst_cream->shift = 0;
+
+    if (Rn == 15) {                           // literal, U=hw1[7], P=1, W=0, imm12
+        inst_cream->imm = BITS(inst, 0, 11);
+        inst_cream->U = BIT(inst, 23);
+        inst_cream->P = 1;
+        inst_cream->W = 0;
+    } else if (BIT(inst, 23)) {               // imm12 positive offset (hw1[7]), P=1,U=1,W=0
+        inst_cream->imm = BITS(inst, 0, 11);
+        inst_cream->U = 1;
+        inst_cream->P = 1;
+        inst_cream->W = 0;
+    } else if (BIT(inst, 11)) {               // imm8 with index/wback, hw2 = 1 P U W imm8
+        inst_cream->imm = BITS(inst, 0, 7);
+        inst_cream->P = BIT(inst, 10);        // hw2[10]
+        inst_cream->U = BIT(inst, 9);         // hw2[9]
+        inst_cream->W = BIT(inst, 8);         // hw2[8]
+    } else {                                  // register, Rm with LSL #imm2, P=1,U=1,W=0
+        inst_cream->is_reg = 1;
+        inst_cream->Rm = BITS(inst, 0, 3);    // hw2[3:0]
+        inst_cream->shift = BITS(inst, 4, 5); // hw2[5:4] = imm2
+        inst_cream->imm = 0;
+        inst_cream->U = 1;
+        inst_cream->P = 1;
+        inst_cream->W = 0;
+    }
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = (inst_cream->is_load && inst_cream->Rt == 15) ? TransExtData::INDIRECT_BRANCH
+                                                                  : TransExtData::NON_BRANCH;
+    return inst_base;
+}
+
+// Dual load/store (LDRD/STRD)
+// Rt2 and the imm8<<2 offset are from the thumb32 word
+// Rn==15 is the PC-relative (literal) form
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_ldrd)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_ldrd_inst));
+    thumb2_ldrd_inst* inst_cream = (thumb2_ldrd_inst*)inst_base->component;
+
+    inst_cream->Rt = BITS(inst, 12, 15);   // hw2[15:12]
+    inst_cream->Rt2 = BITS(inst, 8, 11);   // hw2[11:8]
+    inst_cream->Rn = BITS(inst, 16, 19);   // hw1[3:0]
+    inst_cream->imm = BITS(inst, 0, 7) << 2; // hw2[7:0], scaled by 4
+    inst_cream->P = BIT(inst, 24);         // hw1[8]
+    inst_cream->U = BIT(inst, 23);         // hw1[7]
+    inst_cream->W = BIT(inst, 21);         // hw1[5]
+    inst_cream->is_load = BIT(inst, 20);   // hw1[4]
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+    return inst_base;
+}
+
+// Table branch (TBB/TBH) ends the basic block (indirect branch)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_tb)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_tb_inst));
+    thumb2_tb_inst* inst_cream = (thumb2_tb_inst*)inst_base->component;
+
+    inst_cream->Rn = BITS(inst, 16, 19);  // hw1[3:0]
+    inst_cream->Rm = BITS(inst, 0, 3);    // hw2[3:0]
+    inst_cream->is_half = BIT(inst, 4);   // hw2[4] = H
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::INDIRECT_BRANCH;
+    return inst_base;
+}
+
+// BL (T1) / BLX (T2), hw2[12] determines BL (1) vs BLX (0)
 static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_bl)(unsigned int inst, int index) {
     arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_bl_inst));
     thumb2_bl_inst* inst_cream = (thumb2_bl_inst*)inst_base->component;
 
-    const u32 hw1 = inst >> 16;
-    const u32 hw2 = inst & 0xFFFF;
-    const u32 S = (hw1 >> 10) & 0x1;
-    const u32 imm10 = hw1 & 0x3FF; // imm10 (BL) / imm10H (BLX)
-    const u32 J1 = (hw2 >> 13) & 0x1;
-    const u32 J2 = (hw2 >> 11) & 0x1;
-    const u32 op = (hw2 >> 12) & 0x1; // 1 = BL, 0 = BLX
+    const u32 S = BIT(inst, 26);         // hw1[10]
+    const u32 imm10 = BITS(inst, 16, 25); // hw1[9:0] (imm10 / imm10H)
+    const u32 J1 = BIT(inst, 13);        // hw2[13]
+    const u32 J2 = BIT(inst, 11);        // hw2[11]
+    const u32 op = BIT(inst, 12);        // hw2[12], 1 = BL, 0 = BLX
     const u32 I1 = 1 ^ (J1 ^ S);
     const u32 I2 = 1 ^ (J2 ^ S);
 
     u32 imm;
     if (op) { // BL
-        const u32 imm11 = hw2 & 0x7FF;
+        const u32 imm11 = BITS(inst, 0, 10); // hw2[10:0]
         imm = (S << 24) | (I1 << 23) | (I2 << 22) | (imm10 << 12) | (imm11 << 1);
     } else { // BLX
-        const u32 imm10L = (hw2 >> 1) & 0x3FF;
+        const u32 imm10L = BITS(inst, 1, 10); // hw2[10:1]
         imm = (S << 24) | (I1 << 23) | (I2 << 22) | (imm10 << 12) | (imm10L << 2);
     }
     if (imm & 0x01000000) // sign-extend from bit 24
@@ -1934,17 +2129,329 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_bl)(unsigned int inst, int inde
     return inst_base;
 }
 
+// B (T4, unconditional, 32-bit Thumb-2)
+// The immediate is assembled exactly like BL's (I1/I2 derived from J1/J2^S)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_b)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(b_2_thumb));
+    b_2_thumb* inst_cream = (b_2_thumb*)inst_base->component;
+
+    const u32 S = BIT(inst, 26);          // hw1[10]
+    const u32 imm10 = BITS(inst, 16, 25); // hw1[9:0]
+    const u32 J1 = BIT(inst, 13);         // hw2[13]
+    const u32 J2 = BIT(inst, 11);         // hw2[11]
+    const u32 imm11 = BITS(inst, 0, 10);  // hw2[10:0]
+    const u32 I1 = 1 ^ (J1 ^ S);
+    const u32 I2 = 1 ^ (J2 ^ S);
+
+    u32 imm = (S << 24) | (I1 << 23) | (I2 << 22) | (imm10 << 12) | (imm11 << 1);
+    if (imm & 0x01000000) // sign-extend from bit 24
+        imm |= 0xFE000000;
+
+    inst_cream->imm = imm;
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::DIRECT_BRANCH;
+    return inst_base;
+}
+
+// B (T3, conditional, 32-bit Thumb-2)
+// Unlike T4/BL, the offset is S:J2:J1:imm6:imm11:0 (21-bit, no I1/I2 inversion) and the condition lives in hw1[9:6]
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_b_cond)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(b_cond_thumb));
+    b_cond_thumb* inst_cream = (b_cond_thumb*)inst_base->component;
+
+    const u32 S = BIT(inst, 26);          // hw1[10]
+    const u32 cond = BITS(inst, 22, 25);  // hw1[9:6]
+    const u32 imm6 = BITS(inst, 16, 21);  // hw1[5:0]
+    const u32 J1 = BIT(inst, 13);         // hw2[13]
+    const u32 J2 = BIT(inst, 11);         // hw2[11]
+    const u32 imm11 = BITS(inst, 0, 10);  // hw2[10:0]
+
+    u32 imm = (S << 20) | (J2 << 19) | (J1 << 18) | (imm6 << 12) | (imm11 << 1);
+    if (imm & 0x00100000) // sign-extend from bit 20
+        imm |= 0xFFE00000;
+
+    inst_cream->imm = imm;
+    inst_cream->cond = cond;
+    inst_base->cond = 0xE; // AL. the branch condition is evaluated in-handler via inst_cream->cond
+    inst_base->idx = index;
+    inst_base->br = TransExtData::DIRECT_BRANCH;
+    return inst_base;
+}
+
 // Unimplemented 32-bit Thumb-2 encoding decoded to a fake 4-byte skip
 static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_undef)(unsigned int inst, int index) {
     arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_undef_inst));
     thumb2_undef_inst* inst_cream = (thumb2_undef_inst*)inst_base->component;
 
     inst_cream->enc = inst;
+    
+    //__builtin_trap();
 
     inst_base->cond = 0xE; // AL
     inst_base->idx = index;
     inst_base->br = TransExtData::NON_BRANCH;
     return inst_base;
+}
+
+// Thumb-2 halfword / signed-byte unprivileged (T-variant) offset addressing
+static void Thumb2HalfwordOffset(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+    const unsigned int Rn = BITS(inst, 16, 19);
+    const unsigned int imm8 = BITS(inst, 0, 7);
+    virt_addr = cpu->Reg[Rn] + imm8;
+}
+
+static get_addr_fp_t GetAddressingOpT2(unsigned int /*inst*/) {
+    return Thumb2HalfwordOffset;
+}
+
+// LDRHT / LDRSBT / LDRSHT / STRHT are similar enough to share the same block
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_ldst_ht)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(ldst_inst));
+    ldst_inst* inst_cream = (ldst_inst*)inst_base->component;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->inst = inst;
+    inst_cream->get_addr = GetAddressingOpT2(inst);
+    return inst_base;
+}
+
+// Word LDREX / STREX (Thumb)
+// Thumb encodings have an imm8<<2 offset that the ARM forms lack
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_ldrex)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_ldstrex_inst));
+    thumb2_ldstrex_inst* inst_cream = (thumb2_ldstrex_inst*)inst_base->component;
+
+    const u32 Rt = BITS(inst, 12, 15);
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = (Rt == 15) ? TransExtData::INDIRECT_BRANCH : TransExtData::NON_BRANCH;
+
+    inst_cream->Rn = BITS(inst, 16, 19);
+    inst_cream->Rt = Rt;
+    inst_cream->Rd = 0;
+    inst_cream->imm = BITS(inst, 0, 7) << 2;
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_strex)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(thumb2_ldstrex_inst));
+    thumb2_ldstrex_inst* inst_cream = (thumb2_ldstrex_inst*)inst_base->component;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rn = BITS(inst, 16, 19);
+    inst_cream->Rt = BITS(inst, 12, 15); // value
+    inst_cream->Rd = BITS(inst, 8, 11);  // status result
+    inst_cream->imm = BITS(inst, 0, 7) << 2;
+    return inst_base;
+}
+
+// LDREXB/H/D and STREXB/H/D (Thumb)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_ldrex_bhd)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(generic_arm_inst));
+    generic_arm_inst* inst_cream = (generic_arm_inst*)inst_base->component;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rn = BITS(inst, 16, 19);
+    inst_cream->Rd = BITS(inst, 12, 15); // Rt destination
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_strex_bhd)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(generic_arm_inst));
+    generic_arm_inst* inst_cream = (generic_arm_inst*)inst_base->component;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rn = BITS(inst, 16, 19);
+    inst_cream->Rm = BITS(inst, 12, 15); // Rt value
+    inst_cream->Rd = BITS(inst, 0, 3);   // status result
+    return inst_base;
+}
+
+// Bitfield instructions BFC/BFI/SBFX/UBFX/RBIT for ARM
+static ARM_INST_PTR INTERPRETER_TRANSLATE(bfi)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(bfi_inst));
+    bfi_inst* inst_cream = (bfi_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rd = BITS(inst, 12, 15);
+    inst_cream->Rn = BITS(inst, 0, 3);
+    inst_cream->lsb = BITS(inst, 7, 11);
+    inst_cream->msb = BITS(inst, 16, 20);
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(bfc)(unsigned int inst, int index) {
+    return INTERPRETER_TRANSLATE(bfi)(inst, index); // Rn == 15, ignored by BFC handler
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(ubfx)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(bfx_inst));
+    bfx_inst* inst_cream = (bfx_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rd = BITS(inst, 12, 15);
+    inst_cream->Rn = BITS(inst, 0, 3);
+    inst_cream->lsb = BITS(inst, 7, 11);
+    inst_cream->widthm1 = BITS(inst, 16, 20);
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(sbfx)(unsigned int inst, int index) {
+    return INTERPRETER_TRANSLATE(ubfx)(inst, index); // sign-extend chosen by SBFX handler
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(rbit)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(rev_inst));
+    rev_inst* inst_cream = (rev_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rd = BITS(inst, 12, 15);
+    inst_cream->Rm = BITS(inst, 0, 3);
+    return inst_base;
+}
+
+// SDIV / UDIV (ARM)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(sdiv)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(generic_arm_inst));
+    generic_arm_inst* inst_cream = (generic_arm_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rd = BITS(inst, 16, 19);
+    inst_cream->Rm = BITS(inst, 8, 11);
+    inst_cream->Rn = BITS(inst, 0, 3);
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(udiv)(unsigned int inst, int index) {
+    return INTERPRETER_TRANSLATE(sdiv)(inst, index); // same layout, unsigned in handler
+}
+
+// Bitfield instructions BFC/BFI/SBFX/UBFX/RBIT for Thumb
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_bfi)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(bfi_inst));
+    bfi_inst* inst_cream = (bfi_inst*)inst_base->component;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rd = BITS(inst, 8, 11);
+    inst_cream->Rn = BITS(inst, 16, 19);
+    inst_cream->lsb = (BITS(inst, 12, 14) << 2) | BITS(inst, 6, 7);
+    inst_cream->msb = BITS(inst, 0, 4);
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_bfc)(unsigned int inst, int index) {
+    return INTERPRETER_TRANSLATE(thumb2_bfi)(inst, index);
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_ubfx)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(bfx_inst));
+    bfx_inst* inst_cream = (bfx_inst*)inst_base->component;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rd = BITS(inst, 8, 11);
+    inst_cream->Rn = BITS(inst, 16, 19);
+    inst_cream->lsb = (BITS(inst, 12, 14) << 2) | BITS(inst, 6, 7);
+    inst_cream->widthm1 = BITS(inst, 0, 4);
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_sbfx)(unsigned int inst, int index) {
+    return INTERPRETER_TRANSLATE(thumb2_ubfx)(inst, index);
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_rbit)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(rev_inst));
+    rev_inst* inst_cream = (rev_inst*)inst_base->component;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rd = BITS(inst, 8, 11);
+    inst_cream->Rm = BITS(inst, 0, 3);
+    return inst_base;
+}
+
+// ARM MOVW (A2) / MOVT (A1)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(mov16a)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(mov16_inst));
+    mov16_inst* inst_cream = (mov16_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31);
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rd = BITS(inst, 12, 15);
+    inst_cream->imm16 = (BITS(inst, 16, 19) << 12) | BITS(inst, 0, 11);
+    return inst_base;
+}
+
+// MLS (Thumb)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_mls)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(mla_inst));
+    mla_inst* inst_cream = (mla_inst*)inst_base->component;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->S = 0;                   // MLS never sets flags
+    inst_cream->Rn = BITS(inst, 12, 15); // Ra (accumulate), hw2[15:12]
+    inst_cream->Rd = BITS(inst, 8, 11);  // Rd, hw2[11:8]
+    inst_cream->Rs = BITS(inst, 16, 19); // Rn (multiplicand), hw1[3:0]
+    inst_cream->Rm = BITS(inst, 0, 3);   // Rm (multiplier), hw2[3:0]
+    return inst_base;
+}
+
+// MOV (register) T3
+// SDIV / UDIV (Thumb)
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_sdiv)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(generic_arm_inst));
+    generic_arm_inst* inst_cream = (generic_arm_inst*)inst_base->component;
+
+    inst_base->cond = 0xE; // AL
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    inst_cream->Rd = BITS(inst, 8, 11);
+    inst_cream->Rm = BITS(inst, 0, 3);
+    inst_cream->Rn = BITS(inst, 16, 19);
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_udiv)(unsigned int inst, int index) {
+    return INTERPRETER_TRANSLATE(thumb2_sdiv)(inst, index); // unsigned in handler
 }
 
 // Floating point VFPv3 instructions
@@ -1973,6 +2480,7 @@ const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(vcvtbds),
     INTERPRETER_TRANSLATE(vcvtbff),
     INTERPRETER_TRANSLATE(vcvtbfi),
+    INTERPRETER_TRANSLATE(vcvtbhs),
     INTERPRETER_TRANSLATE(vmovbrs),
     INTERPRETER_TRANSLATE(vmsr),
     INTERPRETER_TRANSLATE(vmovbrc),
@@ -1995,6 +2503,11 @@ const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(pld),
     INTERPRETER_TRANSLATE(setend),
     INTERPRETER_TRANSLATE(clrex),
+    INTERPRETER_TRANSLATE(nop), // dmb
+    INTERPRETER_TRANSLATE(nop), // dsb
+    INTERPRETER_TRANSLATE(nop), // isb
+    INTERPRETER_TRANSLATE(nop), // pli
+    INTERPRETER_TRANSLATE(nop), // pli
     INTERPRETER_TRANSLATE(rev16),
     INTERPRETER_TRANSLATE(usad8),
     INTERPRETER_TRANSLATE(sxtb),
@@ -2089,6 +2602,9 @@ const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(tst),
     INTERPRETER_TRANSLATE(teq),
     INTERPRETER_TRANSLATE(cmn),
+    INTERPRETER_TRANSLATE(mla),
+    INTERPRETER_TRANSLATE(mov16a),
+    INTERPRETER_TRANSLATE(mov16a),
     INTERPRETER_TRANSLATE(smull),
     INTERPRETER_TRANSLATE(umull),
     INTERPRETER_TRANSLATE(umlal),
@@ -2122,10 +2638,23 @@ const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(ldrh),
     INTERPRETER_TRANSLATE(strh),
     INTERPRETER_TRANSLATE(ldrd),
+
+    INTERPRETER_TRANSLATE(bfc),
+    INTERPRETER_TRANSLATE(bfi),
+    INTERPRETER_TRANSLATE(rbit),
+    INTERPRETER_TRANSLATE(sbfx),
+    INTERPRETER_TRANSLATE(ubfx),
+    INTERPRETER_TRANSLATE(sdiv),
+    INTERPRETER_TRANSLATE(udiv),
+    INTERPRETER_TRANSLATE(udf), // udf -> undefined
     INTERPRETER_TRANSLATE(strt),
     INTERPRETER_TRANSLATE(strbt),
     INTERPRETER_TRANSLATE(ldrbt),
     INTERPRETER_TRANSLATE(ldrt),
+    INTERPRETER_TRANSLATE(strht),
+    INTERPRETER_TRANSLATE(ldrht),
+    INTERPRETER_TRANSLATE(ldrsbt),
+    INTERPRETER_TRANSLATE(ldrsht),
     INTERPRETER_TRANSLATE(mrc),
     INTERPRETER_TRANSLATE(mcr),
     INTERPRETER_TRANSLATE(msr),
@@ -2150,25 +2679,64 @@ const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(wfe),
     INTERPRETER_TRANSLATE(wfi),
     INTERPRETER_TRANSLATE(sev),
+    INTERPRETER_TRANSLATE(nop), // csdb -> NOP
+    INTERPRETER_TRANSLATE(nop), // dbg  -> NOP
     INTERPRETER_TRANSLATE(swi),
     INTERPRETER_TRANSLATE(bbl),
 
-    // thumb2 
-    INTERPRETER_TRANSLATE(thumb2_mov_imm), // MOV{S}.W #imm (arm_instruction_trans_len - 12)
-    INTERPRETER_TRANSLATE(mov16),        // MOVW         (arm_instruction_trans_len - 11)
-    INTERPRETER_TRANSLATE(mov16),        // MOVT         (arm_instruction_trans_len - 10)
-    INTERPRETER_TRANSLATE(thumb2_bl),    // BL/BLX       (arm_instruction_trans_len - 9)
-    INTERPRETER_TRANSLATE(thumb2_undef), // unimpl. skip (arm_instruction_trans_len - 8)
+    // Thumb-only tail
+    // addressed with (thumb2_table_base() + THUMB2_*)
+    // the order is mostly decode precedence, synced with Thumb2Table and InstLabel[]
 
-    INTERPRETER_TRANSLATE(thumb_cbz),     // CBZ / CBNZ   (arm_instruction_trans_len - 7)
-    INTERPRETER_TRANSLATE(thumb_it),      // IT           (arm_instruction_trans_len - 6)
+    // op1 == 0b01, load/store dual/exclusive, data-processing register
+    INTERPRETER_TRANSLATE(thumb2_ldrex),     // LDREX        (THUMB2_LDREX)
+    INTERPRETER_TRANSLATE(thumb2_strex),     // STREX        (THUMB2_STREX)
+    INTERPRETER_TRANSLATE(thumb2_ldrex_bhd), // LDREXB       (THUMB2_LDREXB)
+    INTERPRETER_TRANSLATE(thumb2_ldrex_bhd), // LDREXH       (THUMB2_LDREXH)
+    INTERPRETER_TRANSLATE(thumb2_ldrex_bhd), // LDREXD       (THUMB2_LDREXD)
+    INTERPRETER_TRANSLATE(thumb2_strex_bhd), // STREXB       (THUMB2_STREXB)
+    INTERPRETER_TRANSLATE(thumb2_strex_bhd), // STREXH       (THUMB2_STREXH)
+    INTERPRETER_TRANSLATE(thumb2_strex_bhd), // STREXD       (THUMB2_STREXD)
+    INTERPRETER_TRANSLATE(thumb2_data_reg),  // DP shifted reg (THUMB2_DATA_REG)
+    INTERPRETER_TRANSLATE(thumb2_shift_reg), // DP reg shift    (THUMB2_SHIFT_REG)
 
-    // All the thumb-exclusive instructions should be placed the end of table
-    INTERPRETER_TRANSLATE(b_2_thumb),
-    INTERPRETER_TRANSLATE(b_cond_thumb),
-    INTERPRETER_TRANSLATE(bl_1_thumb),
-    INTERPRETER_TRANSLATE(bl_2_thumb),
-    INTERPRETER_TRANSLATE(blx_1_thumb),
+    // op1 == 0b10, branches/misc control, then data-processing immediate
+    INTERPRETER_TRANSLATE(thumb2_bl),    // BL/BLX          (THUMB2_BL)
+    INTERPRETER_TRANSLATE(clrex),        // CLREX           (THUMB2_CLREX)
+    INTERPRETER_TRANSLATE(nop),          // barrier/hint    (THUMB2_NOP)
+    INTERPRETER_TRANSLATE(thumb2_data_imm), // DP modified imm (THUMB2_DATA_IMM)
+    INTERPRETER_TRANSLATE(mov16),        // MOVW            (THUMB2_MOVW)
+    INTERPRETER_TRANSLATE(mov16),        // MOVT            (THUMB2_MOVT)
+    INTERPRETER_TRANSLATE(thumb2_addw),  // ADDW/SUBW/ADR   (THUMB2_ADDW)
+    INTERPRETER_TRANSLATE(thumb2_bfc),   // BFC             (THUMB2_BFC)
+    INTERPRETER_TRANSLATE(thumb2_bfi),   // BFI             (THUMB2_BFI)
+    INTERPRETER_TRANSLATE(thumb2_sbfx),  // SBFX            (THUMB2_SBFX)
+    INTERPRETER_TRANSLATE(thumb2_ubfx),  // UBFX            (THUMB2_UBFX)
+
+    // op1 == 0b11, data-processing register, load/store single
+    INTERPRETER_TRANSLATE(thumb2_rbit),  // RBIT            (THUMB2_RBIT)
+    INTERPRETER_TRANSLATE(thumb2_mls),   // MLS             (THUMB2_MLS)
+    INTERPRETER_TRANSLATE(thumb2_sdiv),  // SDIV            (THUMB2_SDIV)
+    INTERPRETER_TRANSLATE(thumb2_udiv),  // UDIV            (THUMB2_UDIV)
+    INTERPRETER_TRANSLATE(thumb2_ldst_ht), // STRHT         (THUMB2_STRHT)
+    INTERPRETER_TRANSLATE(thumb2_ldst_ht), // LDRHT         (THUMB2_LDRHT)
+    INTERPRETER_TRANSLATE(thumb2_ldst_ht), // LDRSBT        (THUMB2_LDRSBT)
+    INTERPRETER_TRANSLATE(thumb2_ldst_ht), // LDRSHT        (THUMB2_LDRSHT)
+    INTERPRETER_TRANSLATE(thumb2_ldst_hs), // LDRH/STRH/LDRSB/LDRSH (THUMB2_LDST_HS)
+    INTERPRETER_TRANSLATE(thumb2_ldrd),  // LDRD/STRD        (THUMB2_LDRD)
+    INTERPRETER_TRANSLATE(thumb2_tb),    // TBB/TBH          (THUMB2_TB)
+    INTERPRETER_TRANSLATE(thumb2_undef), // unimpl. skip    (THUMB2_UNDEF)
+
+    // 16-bit Thumb, interpreter DecodeThumbInstruction switch order
+    INTERPRETER_TRANSLATE(thumb_cbz),    // CBZ / CBNZ      (THUMB2_CBZ)
+    INTERPRETER_TRANSLATE(thumb_it),     // IT              (THUMB2_IT)
+    INTERPRETER_TRANSLATE(b_cond_thumb), // B<c>            (THUMB2_B_COND)
+    INTERPRETER_TRANSLATE(b_2_thumb),    // B               (THUMB2_B_2)
+    INTERPRETER_TRANSLATE(blx_1_thumb),  // BLX             (THUMB2_BLX_1)
+    INTERPRETER_TRANSLATE(bl_1_thumb),   // BL (hw1)        (THUMB2_BL_1)
+    INTERPRETER_TRANSLATE(bl_2_thumb),   // BL (hw2)        (THUMB2_BL_2)
+    INTERPRETER_TRANSLATE(thumb2_b),     // B.W (T4)        (THUMB2_B_W)
+    INTERPRETER_TRANSLATE(thumb2_b_cond),// B<c>.W (T3)     (THUMB2_B_COND_W)
 };
 
 const std::size_t arm_instruction_trans_len = sizeof(arm_instruction_trans) / sizeof(transop_fp_t);
