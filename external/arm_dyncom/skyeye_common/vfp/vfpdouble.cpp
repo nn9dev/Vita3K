@@ -51,6 +51,8 @@
  * ===========================================================================
  */
 
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_OFF
+
 #include <algorithm>
 #include <util/log.h>
 #include "skyeye_common/vfp/asm_vfp.h"
@@ -83,11 +85,14 @@ static void vfp_double_normalise_denormal(struct vfp_double* vd) {
     vfp_double_dump("normalise_denormal: out", vd);
 }
 
-u32 vfp_double_normaliseround(ARMul_State* state, int dd, struct vfp_double* vd, u32 fpscr,
-                              u32 exceptions, const char* func) {
+// Normalize, round, and pack `vd`, returning the packed word and putting any rounding exceptions into *pexc
+// vfp_double_normaliseround() wraps this with the register write and the MAC path uses it to round the intermediate product
+// Mirrors vfp_single_normalise_round_pack.
+static s64 vfp_double_normalise_round_pack(struct vfp_double* vd, u32 fpscr, u32* pexc) {
     u64 significand, incr;
     int exponent, shift, underflow;
     u32 rmode;
+    u32 exceptions = *pexc;
 
     vfp_double_dump("pack: in", vd);
 
@@ -219,11 +224,15 @@ u32 vfp_double_normaliseround(ARMul_State* state, int dd, struct vfp_double* vd,
 
 pack:
     vfp_double_dump("pack: final", vd);
-    {
-        s64 d = vfp_double_pack(vd);
-        LOG_TRACE("VFP: {}: d(d{})={:016x} exceptions={:08x}", func, dd, d, exceptions);
-        vfp_put_double(state, d, dd);
-    }
+    *pexc = exceptions;
+    return vfp_double_pack(vd);
+}
+
+u32 vfp_double_normaliseround(ARMul_State* state, int dd, struct vfp_double* vd, u32 fpscr,
+                              u32 exceptions, const char* func) {
+    s64 d = vfp_double_normalise_round_pack(vd, fpscr, &exceptions);
+    LOG_TRACE("VFP: {}: d(d{})={:016x} exceptions={:08x}", func, dd, d, exceptions);
+    vfp_put_double(state, d, dd);
     return exceptions;
 }
 
@@ -909,6 +918,20 @@ static u32 vfp_double_multiply_accumulate(ARMul_State* state, int dd, int dn, in
         vfp_double_normalise_denormal(&vdm);
 
     exceptions |= vfp_double_multiply(&vdp, &vdn, &vdm, fpscr);
+
+    // ARMv7 VFP VMLA/VMLS/VNMLA/VNMLS are >>NOT<< fused.
+    // Thus, round the Sn*Sm product to double precision before the accumulate (two roundings)
+    // vfp_double_multiply leaves an extended-precision (jammed) product which gives a fused 1-ULP-off result, 
+    // so send it through a pack/unpack to collapse it to the real intermediate
+    {
+        u32 prod_exc = 0;
+        const s64 packed = vfp_double_normalise_round_pack(&vdp, fpscr, &prod_exc);
+        exceptions |= prod_exc;
+        exceptions |= vfp_double_unpack(&vdp, packed, fpscr);
+        if (vdp.exponent == 0 && vdp.significand)
+            vfp_double_normalise_denormal(&vdp);
+    }
+
     if (negate & NEG_MULTIPLY)
         vdp.sign = vfp_sign_negate(vdp.sign);
 

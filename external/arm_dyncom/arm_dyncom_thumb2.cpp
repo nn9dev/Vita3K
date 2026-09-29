@@ -30,7 +30,7 @@
 //  | 1  1  1  |  op1  |       op2      |         | op |          |
 
 // Rather than round-tripping through ARM encodings (which is impossible for some encodings), 
-// each recognised instruction fills the interpreter's decoded-operand struct directly and 
+// each recognized instruction fills the interpreter's decoded-operand struct directly and 
 // dispatches through the existing arm_instruction_trans[] execution backend.
 // In this manner, we are able to ""simulate"" thumb2 instructions by directly producing
 // an `arm_inst`, the final structure that the interp/translator operates on
@@ -64,8 +64,10 @@ static u32 BuildArmSingleLdSt(const u32 hw1, const u32 hw2) {
     const u32 Rt = (hw2 >> 12) & 0xF;
     
 
-    // Rt==1111 on a load is a PLD/PLI hint, not and LDR(B)
-    if (load && Rt == 0xF)
+    // Rt==1111 is a PLD preload hint only for a *byte* load (LDRB space)
+    // a word load with Rt==15 is a LDR to PC (a branch, e.g. `LDR PC, [SP], #4` = POP {PC}), 
+    // so it should be sent back and built normally.
+    if (load && Rt == 0xF && size)
         return 0;
 
     // ARM single-data-transfer skeleton: cond=AL, bits[27:26]=01, byte (B) and L set here
@@ -301,6 +303,7 @@ static const int ldm_idx = [] { int i = -1; DecodeARMInstruction(0xE8900000u, &i
 
 ThumbDecodeStatus TranslateThumb2Instruction(const ARMul_State* cpu, u32 addr, u32 inst,
                                              u32* inst_size, ARM_INST_PTR* ptr_inst_base) {
+    const u8 pending_IT = cpu->pending_IT;
     const u32 hw1 = GetThumbInstruction(inst, addr);
     // Second halfword sits in the high 16 bits of the fetched word when the
     // instruction is word-aligned, otherwise it is the first halfword of the
@@ -338,7 +341,7 @@ ThumbDecodeStatus TranslateThumb2Instruction(const ARMul_State* cpu, u32 addr, u
                 arm_word = BuildArmBlockLdSt(hw1, hw2);
                 break;
             case 0xC:   // store exclusive byte/half/dual (by hw2[7:4])
-                switch ((hw2 & 0x0F) >> 4) {
+                switch ((hw2 >> 4) & 0x0F) {
                 case 0x4: idx = base + THUMB2_STREXB; break;
                 case 0x5: idx = base + THUMB2_STREXH; break;
                 case 0x7: idx = base + THUMB2_STREXD; break;
@@ -395,6 +398,14 @@ ThumbDecodeStatus TranslateThumb2Instruction(const ARMul_State* cpu, u32 addr, u
         case 0xE:
         case 0xF:
         // TODO: Fix this
+            // Advanced SIMD (NEON) data processing, U==0 (0xEFxxxxxx). Re-encode to
+            // the ARM A1 form (1111 0010 ...) — a full re-encoding of bits[27:24],
+            // not a nibble swap — and route to neon_data. Must precede the cp10/cp11
+            // VFP check below, whose hw2[11:8] test would misread the NEON payload.
+            if (((hw1 >> 8) & 0xF) == 0xF) {   // hw1[11:8]==1111 => top byte 0xEF here
+                arm_word = 0xF2000000u | (thumb32 & 0x00FFFFFFu);
+                break;
+            }
             // VFP / Advanced SIMD (cp10/cp11): the T1 encoding IS the ARM A2 word, so convert to ARM
             if (((hw2 >> 8) & 0xE) == 0xA) {
                 arm_word = (thumb32 & 0x0FFFFFFFu) | 0xE0000000u;
@@ -530,6 +541,18 @@ ThumbDecodeStatus TranslateThumb2Instruction(const ARMul_State* cpu, u32 addr, u
         }
         break;
     case 0b11:
+        // Advanced SIMD (NEON), re-encoded to ARM A1/A2 form and routed via neon_data / neon_ldst umbrellas
+        // Data processing, U==1 (0xFFxxxxxx) and element/structure load-store (0xF9xxxxxx)
+        // The load-store share of 0xF9 is distinguished from the LDRSB/LDRSH loads below by bit20==0 (hw1 bit4), 
+        // so this should come first
+        if ((hw1 & 0xFF00) == 0xFF00) {   // NEON data, U==1
+            arm_word = 0xF3000000u | (thumb32 & 0x00FFFFFFu);
+            break;
+        }
+        if ((hw1 & 0xFF10) == 0xF900) {   // NEON element/structure load-store (bit20==0)
+            arm_word = 0xF4000000u | (thumb32 & 0x00FFFFFFu);
+            break;
+        }
         // TODO: update this comment (I don't like it)
         // Data-processing (register): LSL/LSR/ASR/ROR (register) T2
         // hw1 == 0xFA0x/0x2x/0x4x/0x6x (type in hw1[6:5]), hw2[15:12]==1111 and hw2[7:4]==0
@@ -653,6 +676,11 @@ ThumbDecodeStatus TranslateThumb2Instruction(const ARMul_State* cpu, u32 addr, u
         break;
     }
 
+    // Inside an IT block, force the ARM condition nibble so the decoder selects the
+    // conditional variant of ops with an unconditional fast path (e.g. LDR vs LDRCOND)
+    if (arm_word && ITState::InBlock(pending_IT))
+        arm_word = (arm_word & 0x0FFFFFFFu) | (ITState::Cond(pending_IT) << 28);
+
     // handle any instructions that will get sent to arm
     if (arm_word) {
         int aidx = -1;
@@ -664,6 +692,7 @@ ThumbDecodeStatus TranslateThumb2Instruction(const ARMul_State* cpu, u32 addr, u
 
     if (idx < 0) {
         LogUnimplementedThumb2(addr, hw1, hw2);
+        __builtin_debugtrap();
         idx = base + THUMB2_UNDEF;
     }
 

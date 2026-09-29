@@ -190,15 +190,8 @@ void ARMul_State::ResetMPCoreCP15Registers() {
     CP15[CP15_TLB_DEBUG_CONTROL] = 0x00000000;
 }
 
-// Guest memory access. Two paths, mirroring how DynarmicCPU gates fastmem:
-//   - Fast path (fastmem on, memory logging off): resolve the guest address
-//     straight to a host pointer via Ptr<T>::get(), which already handles both
-//     of Vita3K's mapping modes (software page table or flat buffer), and
-//     read/write with no validation. This is the interpreter analogue of
-//     dynarmic's config.page_table / config.fastmem_pointer direct access.
-//   - Validated path (fastmem off, or memory logging on): bounds-check the
-//     address the way ArmDynarmicCallback does (null, out-of-range, or the
-//     guard page below host_page_size) and optionally trace the access.
+// cpu_opt in config determines fastmem, determining
+// whether validation checks for the read/write are skipped
 template <typename T>
 static T DoReadMemory(const ARMul_State* cpu, u32 address) {
     Ptr<T> ptr{ address };

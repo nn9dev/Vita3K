@@ -22,6 +22,8 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <memory>
 #include <unordered_map>
 #include <arm_dyncom/common/common_types.h>
 #include <arm_dyncom/skyeye_common/arm_regformat.h>
@@ -147,16 +149,16 @@ enum {
 };
 
 struct ITState {
-    static bool InBlock(u8 v) { return (v & 0x0F) != 0; }
-    static bool LastInBlock(u8 v) { return (v & 0x0F) == 0x08; }
-    // Condition to apply to the next in-block instruction, AL (0xE) when not
-    // in a block so callers can override unconditionally without a branch
-    static u8 Cond(u8 v) { return (v & 0x0F) == 0 ? 0xE : ((v >> 4) & 0xF); }
+    static bool InBlock(u8 p_it) { return (p_it & 0x0F) != 0; }
+    static bool LastInBlock(u8 p_it) { return (p_it & 0x0F) == 0x08; }
+    // Condition to apply to the next in-block instruction. 
+    // AL (0xE) when not in a block so callers can override unconditionally without a branch
+    static u8 Cond(u8 p_it) { return (p_it & 0x0F) == 0 ? 0xE : ((p_it >> 4) & 0xF); }
     // shift cond bits left by one
-    static u8 Advance(u8 v) {
-        if ((v & 0x07) == 0)
+    static u8 Advance(u8 p_it) {
+        if ((p_it & 0x07) == 0)
             return 0;
-        return static_cast<u8>((v & 0xE0) | ((v << 1) & 0x1F));
+        return static_cast<u8>((p_it & 0xE0) | ((p_it << 1) & 0x1F));
     }
 };
 
@@ -258,9 +260,15 @@ public:
 
     u8 IT_state = 0;
     bool IT_just_set = false;
+    // Translate-time shadow of IT_state seeded from IT_state and advanced per-instruction
+    // as whole blocks are translated ahead of execution
+    u8 pending_IT = 0;
 
     unsigned long long NumInstrs; // The number of instructions executed
     u64 NumInstrsToExecute;
+
+    // Cross-thread halt signal checked each dispatch in the interpreter loop
+    std::atomic<bool> halt_requested{ false };
 
     unsigned NresetSig; // Reset the processor
     unsigned NfiqSig;
@@ -277,9 +285,22 @@ public:
     // process for our purposes), not per ARMul_State (which tracks CPU core state).
     std::unordered_map<u64, std::size_t> instruction_cache;
 
+    // Per-thread translation cache allocated lazily on first use
+    std::unique_ptr<char[]> trans_cache_buf;
+    std::size_t trans_cache_buf_top = 0;
+
+    // Last cache-invalidation generation this core has acted on
+    // Compared against the global `translation_generation` at DISPATCH
+    std::uint64_t local_translation_generation = 0;
+
     u64 MakeCacheKey(u32 pc) const {
         return static_cast<u64>(pc) | (static_cast<u64>(IT_state) << 32)
                                     | (static_cast<u64>(TFlag) << 40);
+    }
+
+    void ResetTranslationCache() {
+        instruction_cache.clear();
+        trans_cache_buf_top = 0;
     }
 
 private:

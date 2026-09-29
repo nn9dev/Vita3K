@@ -7,15 +7,19 @@
 #include "skyeye_common/armstate.h"
 #include "skyeye_common/armsupp.h"
 #include "skyeye_common/vfp/vfp.h"
+#include "skyeye_common/vfp/neon.h"
 
-char trans_cache_buf[TRANS_CACHE_SIZE];
-size_t trans_cache_buf_top = 0;
+std::atomic<std::uint64_t> translation_generation{0};
+thread_local ARMul_State* trans_cache_owner = nullptr;
 
 static void* AllocBuffer(std::size_t size) {
-    std::size_t start = trans_cache_buf_top;
-    trans_cache_buf_top += size;
-    assert(trans_cache_buf_top <= TRANS_CACHE_SIZE && "Translation cache is full!");
-    return static_cast<void*>(&trans_cache_buf[start]);
+    ARMul_State* const cpu = trans_cache_owner;
+    if (!cpu->trans_cache_buf) [[unlikely]]
+        cpu->trans_cache_buf = std::make_unique<char[]>(TRANS_CACHE_SIZE);
+    const std::size_t start = cpu->trans_cache_buf_top;
+    cpu->trans_cache_buf_top += size;
+    assert(cpu->trans_cache_buf_top <= TRANS_CACHE_SIZE && "Translation cache is full!");
+    return static_cast<void*>(&cpu->trans_cache_buf[start]);
 }
 
 #define glue(x, y) x##y
@@ -186,7 +190,6 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(cdp)(unsigned int inst, int index) {
     inst_cream->opcode_1 = BITS(inst, 20, 23);
     inst_cream->inst = inst;
 
-    LOG_TRACE("inst {:x} index {:x}", inst, index);
     return inst_base;
 }
 static ARM_INST_PTR INTERPRETER_TRANSLATE(clrex)(unsigned int inst, int index) {
@@ -2459,8 +2462,36 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(thumb2_udiv)(unsigned int inst, int in
 #include "skyeye_common/vfp/vfpinstr.cpp"
 #undef VFP_INTERPRETER_TRANS
 
+// Advanced SIMD (NEON) umbrella translators. Both just cache the decoded form;
+// the real per-op decode tree lives in neon.cpp (see docs/neon-implementation-plan.md).
+static ARM_INST_PTR INTERPRETER_TRANSLATE(neon_data)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(neon_inst));
+    neon_inst* inst_cream = (neon_inst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31); // 0xF (unconditional) for NEON
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    neon_decode(inst, inst_cream);
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(neon_ldst)(unsigned int inst, int index) {
+    arm_inst* inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(neon_ldst));
+    neon_ldst* inst_cream = (neon_ldst*)inst_base->component;
+
+    inst_base->cond = BITS(inst, 28, 31); // 0xF (unconditional) for NEON
+    inst_base->idx = index;
+    inst_base->br = TransExtData::NON_BRANCH;
+
+    neon_ldst_decode(inst, inst_cream);
+    return inst_base;
+}
+
 // this is synced with InstLabel and switch (inst_base->idx) in interpreter.cpp
 const transop_fp_t arm_instruction_trans[] = {
+    INTERPRETER_TRANSLATE(neon_data),
+    INTERPRETER_TRANSLATE(neon_ldst),
     INTERPRETER_TRANSLATE(vmla),
     INTERPRETER_TRANSLATE(vmls),
     INTERPRETER_TRANSLATE(vnmla),

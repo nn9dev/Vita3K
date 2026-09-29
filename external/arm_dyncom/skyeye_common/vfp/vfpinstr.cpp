@@ -1351,7 +1351,7 @@ VSTR_INST : {
 
         vstr_inst* inst_cream = (vstr_inst*)inst_base->component;
 
-        unsigned int base = (inst_cream->n == 15 ? (cpu->Reg[inst_cream->n] & 0xFFFFFFFC) + 8
+        unsigned int base = (inst_cream->n == 15 ? (cpu->Reg[inst_cream->n] & 0xFFFFFFFC) + (cpu->TFlag ? 4 : 8)
                                                  : cpu->Reg[inst_cream->n]);
         addr = (inst_cream->add ? base + inst_cream->imm32 : base - inst_cream->imm32);
 
@@ -1489,9 +1489,8 @@ VSTM_INST : /* encoding 1 */
 
         u32 address = cpu->Reg[inst_cream->n];
 
-        // Only possible in ARM mode, where PC accesses have an 8 byte offset.
         if (inst_cream->n == 15)
-            address += 8;
+            address += (cpu->TFlag ? 4 : 8);
 
         if (inst_cream->add == 0)
             address -= inst_cream->imm32;
@@ -1633,7 +1632,7 @@ VLDR_INST : {
 
         vldr_inst* inst_cream = (vldr_inst*)inst_base->component;
 
-        unsigned int base = (inst_cream->n == 15 ? (cpu->Reg[inst_cream->n] & 0xFFFFFFFC) + 8
+        unsigned int base = (inst_cream->n == 15 ? (cpu->Reg[inst_cream->n] & 0xFFFFFFFC) + (cpu->TFlag ? 4 : 8)
                                                  : cpu->Reg[inst_cream->n]);
         addr = (inst_cream->add ? base + inst_cream->imm32 : base - inst_cream->imm32);
 
@@ -1703,9 +1702,8 @@ VLDM_INST : {
 
         u32 address = cpu->Reg[inst_cream->n];
 
-        // Only possible in ARM mode, where PC accesses have an 8 byte offset.
         if (inst_cream->n == 15)
-            address += 8;
+            address += (cpu->TFlag ? 4 : 8);
 
         if (inst_cream->add == 0)
             address -= inst_cream->imm32;
