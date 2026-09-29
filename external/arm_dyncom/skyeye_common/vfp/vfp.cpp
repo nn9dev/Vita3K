@@ -20,6 +20,8 @@
 
 /* Note: this file handles interface with arm core and vfp registers */
 
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_OFF
+
 #include <arm_dyncom/common/common_types.h>
 #include <util/log.h>
 #include <arm_dyncom/skyeye_common/armstate.h>
@@ -91,7 +93,7 @@ void VMOVR(ARMul_State* state, u32 single, u32 d, u32 m) {
 // Half -> single is exact or a signalling NaN raises Invalid
 // Single -> half honours the FPSCR rounding mode and reports Invalid/Overflow/Underflow/Inexact
 // Modeled after the mbitsnbites/softfp w/ halves implementation (in turn based on Fabrice Bellard) made into self-contained functions
-static u32 vfp_half_to_single(u16 half, u32* exceptions) {
+u32 vfp_half_to_single(u16 half, u32* exceptions) {
     static constexpr u32 F32_INF = 0x7F800000u;
     static constexpr u32 F32_QUIET_NAN = 0x7FC00000u;
     static constexpr u32 F16_MAX_EXPONENT = 0x1F;
@@ -121,7 +123,7 @@ static u32 vfp_half_to_single(u16 half, u32* exceptions) {
     return sign | ((exponent - 15 + 127) << 23) | (mantissa << 13); // normal
 }
 
-static u16 vfp_single_to_half(u32 single, u32 fpscr, u32* exceptions) {
+u16 vfp_single_to_half(u32 single, u32 fpscr, u32* exceptions) {
     static constexpr u16 F16_INF = 0x7C00;
     static constexpr u16 F16_QUIET_NAN = 0x7E00;
     static constexpr u16 F16_MAX_EXPONENT = 0x1F;

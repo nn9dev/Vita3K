@@ -36,6 +36,19 @@ void vfp_raise_exceptions(ARMul_State* state, u32 exceptions, u32 inst, u32 fpsc
 u32 vfp_single_cpdo(ARMul_State* state, u32 inst, u32 fpscr);
 u32 vfp_double_cpdo(ARMul_State* state, u32 inst, u32 fpscr);
 
+// NEON F32 lane helpers (fast-mode single-precision, packed F32 in and out)
+// The caller passes an FPSCR with flush-to-zero and default-NaN forced on
+u32 vfp_neon_f32_add(u32 a, u32 b, u32 fpscr);
+u32 vfp_neon_f32_sub(u32 a, u32 b, u32 fpscr);
+u32 vfp_neon_f32_mul(u32 a, u32 b, u32 fpscr);
+u32 vfp_neon_f32_mla(u32 d, u32 a, u32 b, u32 fpscr);
+u32 vfp_neon_f32_mls(u32 d, u32 a, u32 b, u32 fpscr);
+u32 vfp_neon_f32_abd(u32 a, u32 b, u32 fpscr);
+
+/* IEEE-754 half <-> single conversion (also used by the NEON vector VCVT) */
+u32 vfp_half_to_single(u16 half, u32* exceptions);
+u16 vfp_single_to_half(u32 single, u32 fpscr, u32* exceptions);
+
 void VMOVBRS(ARMul_State* state, u32 to_arm, u32 t, u32 n, u32* value);
 void VMOVBRRD(ARMul_State* state, u32 to_arm, u32 t, u32 t2, u32 n, u32* value1, u32* value2);
 void VMOVBRRSS(ARMul_State* state, u32 to_arm, u32 t, u32 t2, u32 n, u32* value1, u32* value2);

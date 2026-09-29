@@ -25,6 +25,7 @@
 #include "skyeye_common/armstate.h"
 #include "skyeye_common/armsupp.h"
 #include "skyeye_common/vfp/vfp.h"
+#include "skyeye_common/vfp/neon.h"
 #ifdef ENABLE_GDBSTUB
 #include "core/gdbstub/gdbstub.h"
 #endif
@@ -835,6 +836,7 @@ enum { KEEP_GOING, FETCH_EXCEPTION };
 
 static unsigned int InterpreterTranslateInstruction(const ARMul_State* cpu, const u32 phys_addr,
                                                     ARM_INST_PTR& inst_base) {
+    const u8 pending_IT = cpu->pending_IT;
     u32 inst_size = 4;
     u32 inst = cpu->ReadMemory32(phys_addr & 0xFFFFFFFC);
 
@@ -847,6 +849,8 @@ static unsigned int InterpreterTranslateInstruction(const ARMul_State* cpu, cons
         if (((hw1 >> 11) & 0x1F) >= 0x1D) {
             TranslateThumb2Instruction(cpu, phys_addr, inst, &inst_size, &inst_base);
             inst_base->size = inst_size;
+            if (ITState::InBlock(pending_IT))
+                inst_base->cond = ITState::Cond(pending_IT);
             return inst_size;
         }
 
@@ -857,11 +861,30 @@ static unsigned int InterpreterTranslateInstruction(const ARMul_State* cpu, cons
         // We have translated the Thumb branch instruction in the Thumb decoder
         if (state == ThumbDecodeStatus::BRANCH) {
             inst_base->size = inst_size;
+            if (ITState::InBlock(pending_IT))
+                inst_base->cond = ITState::Cond(pending_IT);
             return inst_size;
+        }
+
+        // 16-bit Thumb ALU ops set flags outside an IT block but must not inside one
+        // When we translate a 16-bit instr to arm, they always have the S-bit set, so if there's a condition, drop S bit
+        // The exceptions are comparing ops (TST/TEQ/CMP/CMN), which always set flags 
+        if (ITState::InBlock(pending_IT)) {
+            const bool is_dp = ((arm_inst >> 26) & 0x3) == 0;
+            const u32 op = (arm_inst >> 21) & 0xF;
+            const bool is_compare = (op >= 0x8 && op <= 0xB);
+            if (is_dp && !is_compare)
+                arm_inst &= ~(1u << 20);
+            
+            // Furthermore, some ops have a separate unconditional version (looking at you LDR with LDRCOND) where
+            // instead of using the bits God provided and these versions completely ignore the 4 condition bits.
+            // Thus, stamp the actual ARM word with EQ instead of AL
+            arm_inst = (arm_inst & 0x0FFFFFFFu) | (ITState::Cond(pending_IT) << 28);
         }
         inst = arm_inst;
     }
 
+    //TODO: if they decode the arm instruction here, do we even need to pre-gather the IDX in TranslateThumb2Instruction()?
     int idx;
     if (DecodeARMInstruction(inst, &idx) == ARMDecodeStatus::FAILURE) {
         LOG_ERROR("Decode failure.\tPC: [{:#010X}]\tInstruction: {:08X}", phys_addr,
@@ -873,7 +896,19 @@ static unsigned int InterpreterTranslateInstruction(const ARMul_State* cpu, cons
     inst_base = arm_instruction_trans[idx](inst, idx);
     inst_base->size = inst_size;
 
+    // Predicate this instruction on the active IT-block condition
+    if (ITState::InBlock(pending_IT))
+        inst_base->cond = ITState::Cond(pending_IT);
+
     return inst_size;
+}
+
+// Reclaim the cache before a translate if it can't hold one more block. Tied to
+// the allocation it guards so a fully-cached (all-hits) working set never flushes.
+static void EnsureTransCacheHeadroom(ARMul_State* cpu) {
+    constexpr std::size_t reserve = 1 * 1024 * 1024; // 1MiB buffer
+    if (cpu->trans_cache_buf_top + reserve > TRANS_CACHE_SIZE)
+        cpu->ResetTranslationCache();
 }
 
 static int InterpreterTranslateBlock(ARMul_State* cpu, std::size_t& bb_start, u32 addr) {
@@ -882,22 +917,24 @@ static int InterpreterTranslateBlock(ARMul_State* cpu, std::size_t& bb_start, u3
     // Allocate memory and init InsCream
     // Go on next, until terminal instruction
     // Save start addr of basicblock in CreamCache
+
+    trans_cache_owner = cpu;
+    EnsureTransCacheHeadroom(cpu);
+
     ARM_INST_PTR inst_base = nullptr;
     TransExtData ret = TransExtData::NON_BRANCH;
-    bb_start = trans_cache_buf_top;
+    bb_start = cpu->trans_cache_buf_top;
 
     u32 phys_addr = addr;
     u32 pc_start = cpu->Reg[15];
 
-    u8 pending_IT = cpu->IT_state;
+    cpu->pending_IT = cpu->IT_state;
 
     while (ret == TransExtData::NON_BRANCH) {
         u32 inst_size = InterpreterTranslateInstruction(cpu, phys_addr, inst_base);
 
-        if (ITState::InBlock(pending_IT)) {
-            inst_base->cond = ITState::Cond(pending_IT);
-            pending_IT = ITState::Advance(pending_IT);
-        }
+        if (ITState::InBlock(cpu->pending_IT))
+            cpu->pending_IT = ITState::Advance(cpu->pending_IT);
 
         phys_addr += inst_size;
 
@@ -914,12 +951,17 @@ static int InterpreterTranslateBlock(ARMul_State* cpu, std::size_t& bb_start, u3
 
 static int InterpreterTranslateSingle(ARMul_State* cpu, std::size_t& bb_start, u32 addr) {
 
+    // cache check
+    trans_cache_owner = cpu;
+    EnsureTransCacheHeadroom(cpu);
+
     ARM_INST_PTR inst_base = nullptr;
-    bb_start = trans_cache_buf_top;
+    bb_start = cpu->trans_cache_buf_top;
 
     u32 phys_addr = addr;
     u32 pc_start = cpu->Reg[15];
 
+    cpu->pending_IT = cpu->IT_state;
     InterpreterTranslateInstruction(cpu, phys_addr, inst_base);
 
     if (inst_base->br == TransExtData::NON_BRANCH) {
@@ -990,7 +1032,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
         cpu->IT_just_set = false;                                                                  \
     else                                                                                           \
         cpu->IT_state = ITState::Advance(cpu->IT_state);                                           \
-    inst_base = (arm_inst*)&trans_cache_buf[ptr]
+    inst_base = (arm_inst*)&cpu->trans_cache_buf[ptr]
 
 #define INC_PC(l) ptr += sizeof(arm_inst) + l
 #define INC_PC_STUB ptr += sizeof(arm_inst)
@@ -1015,14 +1057,14 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
 #if defined __GNUC__ || (defined __clang__ && !defined _MSC_VER)
 #define GOTO_NEXT_INST                                                                             \
     GDB_BP_CHECK;                                                                                  \
-    if (num_instrs >= cpu->NumInstrsToExecute)                                                     \
+    if (num_instrs >= cpu->NumInstrsToExecute || cpu->halt_requested.load(std::memory_order_relaxed)) \
         goto END;                                                                                  \
     num_instrs++;                                                                                  \
     goto* InstLabel[inst_base->idx]
 #else
 #define GOTO_NEXT_INST                                                                             \
     GDB_BP_CHECK;                                                                                  \
-    if (num_instrs >= cpu->NumInstrsToExecute)                                                     \
+    if (num_instrs >= cpu->NumInstrsToExecute || cpu->halt_requested.load(std::memory_order_relaxed)) \
         goto END;                                                                                  \
     num_instrs++;                                                                                  \
     switch (inst_base->idx) {                                                                      \
@@ -1442,9 +1484,11 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
 #define UPDATE_NFLAG(dst) (cpu->NFlag = BIT(dst, 31) ? 1 : 0)
 #define UPDATE_ZFLAG(dst) (cpu->ZFlag = dst ? 0 : 1)
 #define UPDATE_CFLAG_WITH_SC (cpu->CFlag = cpu->shifter_carry_out)
+// ALUWritePC/BLXWritePC/BranchWritePC
 #define RECALC_PC_TFLAG(cream)              \
     if (!(cream)->S) {                      \
-        cpu->TFlag = cpu->Reg[15] & 1;      \
+        if (!cpu->TFlag)                    \
+            cpu->TFlag = cpu->Reg[15] & 1;  \
         cpu->Reg[15] &= 0xFFFFFFFE;         \
     }
 
@@ -1465,7 +1509,9 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
 // GCC and Clang have a C++ extension to support a lookup table of labels. Otherwise, fallback
 // to a clunky switch statement.
 #if defined __GNUC__ || defined __clang__
-    void* InstLabel[] = {&&VMLA_INST,
+    void* InstLabel[] = {&&NEON_DATA_INST,
+                         &&NEON_LDST_INST,
+                         &&VMLA_INST,
                          &&VMLS_INST,
                          &&VNMLA_INST,
                          &&VNMLS_INST,
@@ -1744,12 +1790,15 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
     std::size_t ptr;
 
     LOAD_NZCVT;
+    goto DISPATCH_NO_IT;
+    
 DISPATCH: {
     if (cpu->IT_just_set)
         cpu->IT_just_set = false;
     else
         cpu->IT_state = ITState::Advance(cpu->IT_state);
-
+}
+DISPATCH_NO_IT: {
     if (!cpu->NirqSig) {
         if (!(cpu->Cpsr & 0x80)) {
             goto END;
@@ -1760,6 +1809,16 @@ DISPATCH: {
         cpu->Reg[15] &= 0xfffffffe;
     else
         cpu->Reg[15] &= 0xfffffffc;
+
+    // Deferred self-invalidation. invalidate_jit_cache only bumps a global generation counter
+    // Here between blocks, this core should notice the change and reset its own cache
+    {
+        const std::uint64_t gen = translation_generation.load(std::memory_order_acquire);
+        if (cpu->local_translation_generation != gen) {
+            cpu->ResetTranslationCache();
+            cpu->local_translation_generation = gen;
+        }
+    }
 
     // Find the cached instruction cream, otherwise translate it...
     // Key includes IT_state so an in-IT PC never collides with a non-IT PC.
@@ -1782,7 +1841,7 @@ DISPATCH: {
     }
 #endif
 
-    inst_base = (arm_inst*)&trans_cache_buf[ptr];
+    inst_base = (arm_inst*)&cpu->trans_cache_buf[ptr];
     GOTO_NEXT_INST;
 }
 ADC_INST: {
@@ -1923,161 +1982,175 @@ MOVT_INST: {
     GOTO_NEXT_INST;
 }
 THUMB2_DATA_IMM_INST: {
-    // Data-processing (modified immediate) thumb
-    thumb2_data_imm_inst* inst_cream = (thumb2_data_imm_inst*)inst_base->component;
-    const u32 rn = cpu->Reg[inst_cream->Rn];
-    const u32 imm = inst_cream->imm;
-    u32 result = 0;
-    bool carry = cpu->CFlag;
-    bool overflow = cpu->VFlag;
-    bool logical = true; // arithmetic ops set C/V from the add but logical ops do not modify V
-    bool write = true;   // TST/TEQ/CMN/CMP discard the result
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        // Data-processing (modified immediate) thumb
+        thumb2_data_imm_inst* inst_cream = (thumb2_data_imm_inst*)inst_base->component;
+        const u32 rn = cpu->Reg[inst_cream->Rn];
+        const u32 imm = inst_cream->imm;
+        u32 result = 0;
+        bool carry = cpu->CFlag;
+        bool overflow = cpu->VFlag;
+        bool logical = true; // arithmetic ops set C/V from the add but logical ops do not modify V
+        bool write = true;   // TST/TEQ/CMN/CMP discard the result
 
-    switch (inst_cream->op) {
-    case THUMB2_AND: result = rn & imm; break;
-    case THUMB2_TST: result = rn & imm; write = false; break;
-    case THUMB2_BIC: result = rn & ~imm; break;
-    case THUMB2_ORR: result = rn | imm; break;
-    case THUMB2_ORN: result = rn | ~imm; break;
-    case THUMB2_MOV: result = imm; break;
-    case THUMB2_MVN: result = ~imm; break;
-    case THUMB2_EOR: result = rn ^ imm; break;
-    case THUMB2_TEQ: result = rn ^ imm; write = false; break;
-    case THUMB2_ADD: result = AddWithCarry(rn, imm, 0, &carry, &overflow); logical = false; break;
-    case THUMB2_CMN: result = AddWithCarry(rn, imm, 0, &carry, &overflow); logical = false; write = false; break;
-    case THUMB2_ADC: result = AddWithCarry(rn, imm, cpu->CFlag, &carry, &overflow); logical = false; break;
-    case THUMB2_SBC: result = AddWithCarry(rn, ~imm, cpu->CFlag, &carry, &overflow); logical = false; break;
-    case THUMB2_SUB: result = AddWithCarry(rn, ~imm, 1, &carry, &overflow); logical = false; break;
-    case THUMB2_CMP: result = AddWithCarry(rn, ~imm, 1, &carry, &overflow); logical = false; write = false; break;
-    case THUMB2_RSB: result = AddWithCarry(~rn, imm, 1, &carry, &overflow); logical = false; break;
-    }
+        switch (inst_cream->op) {
+        case THUMB2_AND: result = rn & imm; break;
+        case THUMB2_TST: result = rn & imm; write = false; break;
+        case THUMB2_BIC: result = rn & ~imm; break;
+        case THUMB2_ORR: result = rn | imm; break;
+        case THUMB2_ORN: result = rn | ~imm; break;
+        case THUMB2_MOV: result = imm; break;
+        case THUMB2_MVN: result = ~imm; break;
+        case THUMB2_EOR: result = rn ^ imm; break;
+        case THUMB2_TEQ: result = rn ^ imm; write = false; break;
+        case THUMB2_ADD: result = AddWithCarry(rn, imm, 0, &carry, &overflow); logical = false; break;
+        case THUMB2_CMN: result = AddWithCarry(rn, imm, 0, &carry, &overflow); logical = false; write = false; break;
+        case THUMB2_ADC: result = AddWithCarry(rn, imm, cpu->CFlag, &carry, &overflow); logical = false; break;
+        case THUMB2_SBC: result = AddWithCarry(rn, ~imm, cpu->CFlag, &carry, &overflow); logical = false; break;
+        case THUMB2_SUB: result = AddWithCarry(rn, ~imm, 1, &carry, &overflow); logical = false; break;
+        case THUMB2_CMP: result = AddWithCarry(rn, ~imm, 1, &carry, &overflow); logical = false; write = false; break;
+        case THUMB2_RSB: result = AddWithCarry(~rn, imm, 1, &carry, &overflow); logical = false; break;
+        }
 
-    if (write)
-        cpu->Reg[inst_cream->Rd] = result;
-    if (inst_cream->S) {
-        UPDATE_NFLAG(result);
-        UPDATE_ZFLAG(result);
-        if (logical) {
-            if (inst_cream->update_c)
-                cpu->CFlag = inst_cream->carry;
-            // V not modified by logical ops
-        } else {
-            cpu->CFlag = carry;
-            cpu->VFlag = overflow;
+        if (write)
+            cpu->Reg[inst_cream->Rd] = result;
+        if (inst_cream->S) {
+            UPDATE_NFLAG(result);
+            UPDATE_ZFLAG(result);
+            if (logical) {
+                if (inst_cream->update_c)
+                    cpu->CFlag = inst_cream->carry;
+                // V not modified by logical ops
+            } else {
+                cpu->CFlag = carry;
+                cpu->VFlag = overflow;
+            }
         }
     }
+
     cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(thumb2_data_imm_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
 }
 THUMB2_DATA_REG_INST: {
-    // Data-processing (shifted register) 
-    // Logical operations get the Carry flag from ThumbShiftImm
-    thumb2_data_reg_inst* inst_cream = (thumb2_data_reg_inst*)inst_base->component;
-    bool scarry = cpu->CFlag;
-    const u32 operand = ThumbShiftImm(cpu->Reg[inst_cream->Rm], inst_cream->shift_type,
-                                      inst_cream->shift_amount, cpu->CFlag, &scarry);
-    const u32 rn = cpu->Reg[inst_cream->Rn];
-    u32 result = 0;
-    bool carry = cpu->CFlag;
-    bool overflow = cpu->VFlag;
-    bool logical = true;
-    bool write = true;
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        // Data-processing (shifted register) 
+        // Logical operations get the Carry flag from ThumbShiftImm
+        thumb2_data_reg_inst* inst_cream = (thumb2_data_reg_inst*)inst_base->component;
+        bool scarry = cpu->CFlag;
+        const u32 operand = ThumbShiftImm(cpu->Reg[inst_cream->Rm], inst_cream->shift_type,
+                                        inst_cream->shift_amount, cpu->CFlag, &scarry);
+        const u32 rn = cpu->Reg[inst_cream->Rn];
+        u32 result = 0;
+        bool carry = cpu->CFlag;
+        bool overflow = cpu->VFlag;
+        bool logical = true;
+        bool write = true;
 
-    switch (inst_cream->op) {
-    case THUMB2_AND: result = rn & operand; break;
-    case THUMB2_TST: result = rn & operand; write = false; break;
-    case THUMB2_BIC: result = rn & ~operand; break;
-    case THUMB2_ORR: result = rn | operand; break;
-    case THUMB2_ORN: result = rn | ~operand; break;
-    case THUMB2_MOV: result = operand; break;
-    case THUMB2_MVN: result = ~operand; break;
-    case THUMB2_EOR: result = rn ^ operand; break;
-    case THUMB2_TEQ: result = rn ^ operand; write = false; break;
-    case THUMB2_ADD: result = AddWithCarry(rn, operand, 0, &carry, &overflow); logical = false; break;
-    case THUMB2_CMN: result = AddWithCarry(rn, operand, 0, &carry, &overflow); logical = false; write = false; break;
-    case THUMB2_ADC: result = AddWithCarry(rn, operand, cpu->CFlag, &carry, &overflow); logical = false; break;
-    case THUMB2_SBC: result = AddWithCarry(rn, ~operand, cpu->CFlag, &carry, &overflow); logical = false; break;
-    case THUMB2_SUB: result = AddWithCarry(rn, ~operand, 1, &carry, &overflow); logical = false; break;
-    case THUMB2_CMP: result = AddWithCarry(rn, ~operand, 1, &carry, &overflow); logical = false; write = false; break;
-    case THUMB2_RSB: result = AddWithCarry(~rn, operand, 1, &carry, &overflow); logical = false; break;
-    }
+        switch (inst_cream->op) {
+        case THUMB2_AND: result = rn & operand; break;
+        case THUMB2_TST: result = rn & operand; write = false; break;
+        case THUMB2_BIC: result = rn & ~operand; break;
+        case THUMB2_ORR: result = rn | operand; break;
+        case THUMB2_ORN: result = rn | ~operand; break;
+        case THUMB2_MOV: result = operand; break;
+        case THUMB2_MVN: result = ~operand; break;
+        case THUMB2_EOR: result = rn ^ operand; break;
+        case THUMB2_TEQ: result = rn ^ operand; write = false; break;
+        case THUMB2_ADD: result = AddWithCarry(rn, operand, 0, &carry, &overflow); logical = false; break;
+        case THUMB2_CMN: result = AddWithCarry(rn, operand, 0, &carry, &overflow); logical = false; write = false; break;
+        case THUMB2_ADC: result = AddWithCarry(rn, operand, cpu->CFlag, &carry, &overflow); logical = false; break;
+        case THUMB2_SBC: result = AddWithCarry(rn, ~operand, cpu->CFlag, &carry, &overflow); logical = false; break;
+        case THUMB2_SUB: result = AddWithCarry(rn, ~operand, 1, &carry, &overflow); logical = false; break;
+        case THUMB2_CMP: result = AddWithCarry(rn, ~operand, 1, &carry, &overflow); logical = false; write = false; break;
+        case THUMB2_RSB: result = AddWithCarry(~rn, operand, 1, &carry, &overflow); logical = false; break;
+        }
 
-    if (write)
-        cpu->Reg[inst_cream->Rd] = result;
-    if (inst_cream->S) {
-        UPDATE_NFLAG(result);
-        UPDATE_ZFLAG(result);
-        if (logical) {
-            cpu->CFlag = scarry; // shifter carry-out
-            // don't modify V
-        } else {
-            cpu->CFlag = carry;
-            cpu->VFlag = overflow;
+        if (write)
+            cpu->Reg[inst_cream->Rd] = result;
+        if (inst_cream->S) {
+            UPDATE_NFLAG(result);
+            UPDATE_ZFLAG(result);
+            if (logical) {
+                cpu->CFlag = scarry; // shifter carry-out
+                // don't modify V
+            } else {
+                cpu->CFlag = carry;
+                cpu->VFlag = overflow;
+            }
         }
     }
+
     cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(thumb2_data_reg_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
 }
 THUMB2_SHIFT_REG_INST: {
-    // Data-processing (register)
-    thumb2_shift_reg_inst* inst_cream = (thumb2_shift_reg_inst*)inst_base->component;
-    // N/Z and C are set based on the shift
-    bool scarry = cpu->CFlag;
-    // destination register (Rd) = Rm shifted by Rs[7:0]
-    const u32 result = ThumbShiftReg(cpu->Reg[inst_cream->Rm], inst_cream->shift_type,
-                                     cpu->Reg[inst_cream->Rs], cpu->CFlag, &scarry);
-    cpu->Reg[inst_cream->Rd] = result;
-    if (inst_cream->S) {
-        UPDATE_NFLAG(result);
-        UPDATE_ZFLAG(result);
-        cpu->CFlag = scarry; // V unaffected
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        // Data-processing (register)
+        thumb2_shift_reg_inst* inst_cream = (thumb2_shift_reg_inst*)inst_base->component;
+        // N/Z and C are set based on the shift
+        bool scarry = cpu->CFlag;
+        // destination register (Rd) = Rm shifted by Rs[7:0]
+        const u32 result = ThumbShiftReg(cpu->Reg[inst_cream->Rm], inst_cream->shift_type,
+                                        cpu->Reg[inst_cream->Rs], cpu->CFlag, &scarry);
+        cpu->Reg[inst_cream->Rd] = result;
+        if (inst_cream->S) {
+            UPDATE_NFLAG(result);
+            UPDATE_ZFLAG(result);
+            cpu->CFlag = scarry; // V unaffected
+        }
     }
+
     cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(thumb2_shift_reg_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
 }
 THUMB2_ADDW_INST: {
-    // Plain-binary 12-bit immediate ADD/SUB (ADDW/SUBW, ADR, ADD/SUB SP) w/ no flags
-    thumb2_addw_inst* inst_cream = (thumb2_addw_inst*)inst_base->component;
-    // ADR (Rn==15) works off the aligned Thumb read-PC (current instr + 4)
-    const u32 base = (inst_cream->Rn == 15) ? ((cpu->Reg[15] + 4) & ~3u)
-                                            : cpu->Reg[inst_cream->Rn];
-    cpu->Reg[inst_cream->Rd] = inst_cream->sub ? (base - inst_cream->imm)
-                                               : (base + inst_cream->imm);
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        // Plain-binary 12-bit immediate ADD/SUB (ADDW/SUBW, ADR, ADD/SUB SP) w/ no flags
+        thumb2_addw_inst* inst_cream = (thumb2_addw_inst*)inst_base->component;
+        // ADR (Rn==15) works off the aligned Thumb read-PC (current instr + 4)
+        const u32 base = (inst_cream->Rn == 15) ? ((cpu->Reg[15] + 4) & ~3u)
+                                                : cpu->Reg[inst_cream->Rn];
+        cpu->Reg[inst_cream->Rd] = inst_cream->sub ? (base - inst_cream->imm)
+                                                : (base + inst_cream->imm);
+    }
+
     cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(thumb2_addw_inst));
     FETCH_INST;
     GOTO_NEXT_INST;
 }
 THUMB2_LDST_HS_INST: {
-    // Halfword/signed load & store (LDRH/STRH/LDRSB/LDRSH)
-    thumb2_ldst_hs_inst* inst_cream = (thumb2_ldst_hs_inst*)inst_base->component;
-    const u32 rn = CHECK_READ_REG15_WA(cpu, inst_cream->Rn);
-    const u32 offset = inst_cream->is_reg ? (cpu->Reg[inst_cream->Rm] << inst_cream->shift)
-                                          : inst_cream->imm;
-    const u32 offset_addr = inst_cream->U ? (rn + offset) : (rn - offset);
-    const u32 addr = inst_cream->P ? offset_addr : rn;
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        // Halfword/signed load & store (LDRH/STRH/LDRSB/LDRSH)
+        thumb2_ldst_hs_inst* inst_cream = (thumb2_ldst_hs_inst*)inst_base->component;
+        const u32 rn = CHECK_READ_REG15_WA(cpu, inst_cream->Rn);
+        const u32 offset = inst_cream->is_reg ? (cpu->Reg[inst_cream->Rm] << inst_cream->shift)
+                                            : inst_cream->imm;
+        const u32 offset_addr = inst_cream->U ? (rn + offset) : (rn - offset);
+        const u32 addr = inst_cream->P ? offset_addr : rn;
 
-    if (inst_cream->is_load) {
-        u32 value = inst_cream->is_half ? cpu->ReadMemory16(addr) : cpu->ReadMemory8(addr);
-        if (inst_cream->is_signed) {
-            if (inst_cream->is_half)
-                value |= BIT(value, 15) ? 0xFFFF0000u : 0;
-            else
-                value |= BIT(value, 7) ? 0xFFFFFF00u : 0;
+        if (inst_cream->is_load) {
+            u32 value = inst_cream->is_half ? cpu->ReadMemory16(addr) : cpu->ReadMemory8(addr);
+            if (inst_cream->is_signed) {
+                if (inst_cream->is_half)
+                    value |= BIT(value, 15) ? 0xFFFF0000u : 0;
+                else
+                    value |= BIT(value, 7) ? 0xFFFFFF00u : 0;
+            }
+            cpu->Reg[inst_cream->Rt] = value;
+        } else {
+            cpu->WriteMemory16(addr, cpu->Reg[inst_cream->Rt] & 0xFFFF);
         }
-        cpu->Reg[inst_cream->Rt] = value;
-    } else {
-        cpu->WriteMemory16(addr, cpu->Reg[inst_cream->Rt] & 0xFFFF);
+        // Writeback for pre-indexed (P=1,W=1) and post-indexed (P=0). Never Rn==15 (literal is P=1,W=0).
+        if (!inst_cream->P || inst_cream->W)
+            cpu->Reg[inst_cream->Rn] = offset_addr;
     }
-    // Writeback for pre-indexed (P=1,W=1) and post-indexed (P=0). Never Rn==15 (literal is P=1,W=0).
-    if (!inst_cream->P || inst_cream->W)
-        cpu->Reg[inst_cream->Rn] = offset_addr;
 
     cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(thumb2_ldst_hs_inst));
@@ -2085,21 +2158,23 @@ THUMB2_LDST_HS_INST: {
     GOTO_NEXT_INST;
 }
 THUMB2_LDRD_INST: {
-    // Dual load & store (LDRD/STRD) stores two consecutive words at the computed address
-    thumb2_ldrd_inst* inst_cream = (thumb2_ldrd_inst*)inst_base->component;
-    const u32 rn = CHECK_READ_REG15_WA(cpu, inst_cream->Rn);
-    const u32 offset_addr = inst_cream->U ? (rn + inst_cream->imm) : (rn - inst_cream->imm);
-    const u32 addr = inst_cream->P ? offset_addr : rn;
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        // Dual load & store (LDRD/STRD) stores two consecutive words at the computed address
+        thumb2_ldrd_inst* inst_cream = (thumb2_ldrd_inst*)inst_base->component;
+        const u32 rn = CHECK_READ_REG15_WA(cpu, inst_cream->Rn);
+        const u32 offset_addr = inst_cream->U ? (rn + inst_cream->imm) : (rn - inst_cream->imm);
+        const u32 addr = inst_cream->P ? offset_addr : rn;
 
-    if (inst_cream->is_load) {
-        cpu->Reg[inst_cream->Rt] = cpu->ReadMemory32(addr);
-        cpu->Reg[inst_cream->Rt2] = cpu->ReadMemory32(addr + 4);
-    } else {
-        cpu->WriteMemory32(addr, cpu->Reg[inst_cream->Rt]);
-        cpu->WriteMemory32(addr + 4, cpu->Reg[inst_cream->Rt2]);
+        if (inst_cream->is_load) {
+            cpu->Reg[inst_cream->Rt] = cpu->ReadMemory32(addr);
+            cpu->Reg[inst_cream->Rt2] = cpu->ReadMemory32(addr + 4);
+        } else {
+            cpu->WriteMemory32(addr, cpu->Reg[inst_cream->Rt]);
+            cpu->WriteMemory32(addr + 4, cpu->Reg[inst_cream->Rt2]);
+        }
+        if (inst_cream->W)
+            cpu->Reg[inst_cream->Rn] = offset_addr;
     }
-    if (inst_cream->W)
-        cpu->Reg[inst_cream->Rn] = offset_addr;
 
     cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(thumb2_ldrd_inst));
@@ -2107,37 +2182,48 @@ THUMB2_LDRD_INST: {
     GOTO_NEXT_INST;
 }
 THUMB2_TB_INST: {
-    // Table branch (TBB/TBH)
-    // PC = (this instr + 4) + 2 * table[base + index]
-    thumb2_tb_inst* inst_cream = (thumb2_tb_inst*)inst_base->component;
-    const u32 rn = CHECK_READ_REG15(cpu, inst_cream->Rn); // Rn==15 -> Thumb PC (instr + 4)
-    const u32 rm = cpu->Reg[inst_cream->Rm];
-    const u32 entry = inst_cream->is_half ? cpu->ReadMemory16(rn + (rm << 1))
-                                          : cpu->ReadMemory8(rn + rm);
-    cpu->Reg[15] = (cpu->Reg[15] + 4) + (entry << 1);
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        // Table branch (TBB/TBH)
+        // PC = (this instr + 4) + 2 * table[base + index]
+        thumb2_tb_inst* inst_cream = (thumb2_tb_inst*)inst_base->component;
+        const u32 rn = CHECK_READ_REG15(cpu, inst_cream->Rn); // Rn==15 -> Thumb PC (instr + 4)
+        const u32 rm = cpu->Reg[inst_cream->Rm];
+        const u32 entry = inst_cream->is_half ? cpu->ReadMemory16(rn + (rm << 1))
+                                            : cpu->ReadMemory8(rn + rm);
+        cpu->Reg[15] = (cpu->Reg[15] + 4) + (entry << 1);
+    } else {
+        cpu->Reg[15] += inst_base->size; // condition failed: step past the TB
+    }
+
     INC_PC(sizeof(thumb2_tb_inst));
     goto DISPATCH;
 }
 THUMB2_BL_INST: {
-    thumb2_bl_inst* inst_cream = (thumb2_bl_inst*)inst_base->component;
-    const u32 pc = cpu->Reg[15] + 4;
-    cpu->Reg[14] = pc | 1; // set Link Register to next instr |1 for thumb bit
-    if (inst_cream->blx) {
-        cpu->Reg[15] = (pc & 0xFFFFFFFC) + inst_cream->imm; // word-align, then offset
-        cpu->TFlag = 0;                                     // switch to ARM state
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        thumb2_bl_inst* inst_cream = (thumb2_bl_inst*)inst_base->component;
+        const u32 pc = cpu->Reg[15] + 4;
+        cpu->Reg[14] = pc | 1;  // set Link Register to next instr |1 for thumb bit
+        if (inst_cream->blx) {
+            cpu->Reg[15] = (pc & 0xFFFFFFFC) + inst_cream->imm; // word-align, then offset
+            cpu->TFlag = 0;                                     // switch to ARM state
+        } else {
+            cpu->Reg[15] = pc + inst_cream->imm;
+        }
     } else {
-        cpu->Reg[15] = pc + inst_cream->imm;
+        cpu->Reg[15] += inst_base->size;   // condition failed: step past the BL
     }
     INC_PC(sizeof(thumb2_bl_inst));
     goto DISPATCH;
 }
 THUMB2_LDREX_INST: {
-    // LoaD to Register, EXclusive
-    thumb2_ldstrex_inst* inst_cream = (thumb2_ldstrex_inst*)inst_base->component;
-    const u32 read_addr = cpu->Reg[inst_cream->Rn] + inst_cream->imm;
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        // LoaD to Register, EXclusive
+        thumb2_ldstrex_inst* inst_cream = (thumb2_ldstrex_inst*)inst_base->component;
+        const u32 read_addr = cpu->Reg[inst_cream->Rn] + inst_cream->imm;
 
-    cpu->SetExclusiveMemoryAddress(read_addr);
-    cpu->Reg[inst_cream->Rt] = cpu->ReadMemory32(read_addr);
+        cpu->SetExclusiveMemoryAddress(read_addr);
+        cpu->Reg[inst_cream->Rt] = cpu->ReadMemory32(read_addr);
+    }
 
     cpu->Reg[15] += inst_base->size;
     INC_PC(sizeof(thumb2_ldstrex_inst));
@@ -2145,17 +2231,19 @@ THUMB2_LDREX_INST: {
     GOTO_NEXT_INST;
 }
 THUMB2_STREX_INST: {
-    // STore from Register, EXclusive
-    thumb2_ldstrex_inst* inst_cream = (thumb2_ldstrex_inst*)inst_base->component;
-    const u32 write_addr = cpu->Reg[inst_cream->Rn] + inst_cream->imm;
+    if ((inst_base->cond == ConditionCode::AL) || CondPassed(cpu, inst_base->cond)) {
+        // STore from Register, EXclusive
+        thumb2_ldstrex_inst* inst_cream = (thumb2_ldstrex_inst*)inst_base->component;
+        const u32 write_addr = cpu->Reg[inst_cream->Rn] + inst_cream->imm;
 
-    if (cpu->IsExclusiveMemoryAccess(write_addr)) {
-        cpu->UnsetExclusiveMemoryAddress();
-        cpu->WriteMemory32(write_addr, cpu->Reg[inst_cream->Rt]);
-        cpu->Reg[inst_cream->Rd] = 0;
-    } else {
-        // write failed
-        cpu->Reg[inst_cream->Rd] = 1;
+        if (cpu->IsExclusiveMemoryAccess(write_addr)) {
+            cpu->UnsetExclusiveMemoryAddress();
+            cpu->WriteMemory32(write_addr, cpu->Reg[inst_cream->Rt]);
+            cpu->Reg[inst_cream->Rd] = 0;
+        } else {
+            // write failed
+            cpu->Reg[inst_cream->Rd] = 1;
+        }
     }
 
     cpu->Reg[15] += inst_base->size;
@@ -2301,6 +2389,28 @@ UDF_INST: {
     // exit from the dispatch loop without advancing PC
     cpu->NumInstrsToExecute = 0;
     return num_instrs;
+}
+NEON_DATA_INST: {
+    // Advanced SIMD/NEON data processing instruction(s)
+    // NEON instructions are all unconditional (cond == 0b1111) so no CondPassed needed
+    // NEON execution occurs in neon.cpp
+    neon_inst* inst_cream = (neon_inst*)inst_base->component;
+    neon_execute(cpu, inst_cream);
+
+    cpu->Reg[15] += inst_base->size;
+    INC_PC(sizeof(neon_inst));
+    FETCH_INST;
+    GOTO_NEXT_INST;
+}
+NEON_LDST_INST: {
+    // Advanced SIMD/NEON element/structure load-store
+    neon_ldst* inst_cream = (neon_ldst*)inst_base->component;
+    neon_ldst_execute(cpu, inst_cream);
+
+    cpu->Reg[15] += inst_base->size;
+    INC_PC(sizeof(neon_ldst));
+    FETCH_INST;
+    GOTO_NEXT_INST;
 }
 THUMB_CBZ_INST: {
     thumb_cbz* inst_cream = (thumb_cbz*)inst_base->component;
@@ -3010,9 +3120,12 @@ MCR_INST: {
         unsigned int inst = inst_cream->inst;
         if (inst_cream->Rd == 15) {
             DEBUG_MSG;
-        } else {
-            if (inst_cream->cp_num == 15)
-                cpu->WriteCP15Register(RD, CRn, OPCODE_1, CRm, OPCODE_2);
+        } else if (inst_cream->cp_num == 15) {
+            cpu->WriteCP15Register(RD, CRn, OPCODE_1, CRm, OPCODE_2);
+        } else if (inst_cream->cp_num == 11) {
+            // coproc 1011 in the MCR (core->coproc) encoding is the NEON core-register
+            // transfer space, VDUP (core register) and VMOV (core register to scalar) can decode here
+            neon_core_reg_transfer(cpu->ExtReg.data(), inst, cpu->Reg[inst_cream->Rd]);
         }
     }
     cpu->Reg[15] += inst_base->size;
@@ -3097,6 +3210,13 @@ MRC_INST: {
             } else {
                 RD = value;
             }
+        } else if (inst_cream->cp_num == 11) {
+            // coproc 1011 in the MRC (coproc->core) encoding is VMOV (scalar to
+            // core register). This is the read sibling of the MCR VDUP/VMOV section
+            u32 value = 0;
+            if (neon_core_reg_read(cpu->ExtReg.data(), inst_cream->inst, &value)
+                    && inst_cream->Rd != 15)
+                RD = value;
         }
     }
     cpu->Reg[15] += inst_base->size;

@@ -51,6 +51,8 @@
  * ===========================================================================
  */
 
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_OFF
+
 #include <algorithm>
 #include <arm_dyncom/common/common_types.h>
 #include <util/log.h>
@@ -82,10 +84,12 @@ static void vfp_single_normalise_denormal(struct vfp_single* vs) {
     vfp_single_dump("normalise_denormal: out", vs);
 }
 
-u32 vfp_single_normaliseround(ARMul_State* state, int sd, struct vfp_single* vs, u32 fpscr,
-                              u32 exceptions, const char* func) {
+// Normalize, round, and pack `vs`, returning the packed word and putting any rounding exceptions into *pexc
+// vfp_single_normaliseround() wraps this with the register write and the NEON F32 helpers use it directly
+static s32 vfp_single_normalise_round_pack(struct vfp_single* vs, u32 fpscr, u32* pexc) {
     u32 significand, incr, rmode;
     int exponent, shift, underflow;
+    u32 exceptions = *pexc;
 
     vfp_single_dump("pack: in", vs);
 
@@ -220,12 +224,15 @@ u32 vfp_single_normaliseround(ARMul_State* state, int sd, struct vfp_single* vs,
 
 pack:
     vfp_single_dump("pack: final", vs);
-    {
-        s32 d = vfp_single_pack(vs);
-        LOG_TRACE("{}: d(s{})={:08x} exceptions={:08x}", func, sd, d, exceptions);
-        vfp_put_float(state, d, sd);
-    }
+    *pexc = exceptions;
+    return vfp_single_pack(vs);
+}
 
+u32 vfp_single_normaliseround(ARMul_State* state, int sd, struct vfp_single* vs, u32 fpscr,
+                              u32 exceptions, const char* func) {
+    s32 d = vfp_single_normalise_round_pack(vs, fpscr, &exceptions);
+    LOG_TRACE("{}: d(s{})={:08x} exceptions={:08x}", func, sd, d, exceptions);
+    vfp_put_float(state, d, sd);
     return exceptions;
 }
 
@@ -930,6 +937,19 @@ static u32 vfp_single_multiply_accumulate(ARMul_State* state, int sd, int sn, s3
 
     exceptions |= vfp_single_multiply(&vsp, &vsn, &vsm, fpscr);
 
+    // ARMv7 VFP VMLA/VMLS/VNMLA/VNMLS are >>NOT<< fused.
+    // Thus, round the Sn*Sm product to single precision before the accumulate (two roundings)
+    // vfp_single_multiply leaves an extended-precision (jammed) product which gives a fused 1-ULP-off result, 
+    // so send it through a pack/unpack to collapse it to the real intermediate
+    {
+        u32 prod_exc = 0;
+        const s32 packed = vfp_single_normalise_round_pack(&vsp, fpscr, &prod_exc);
+        exceptions |= prod_exc;
+        exceptions |= vfp_single_unpack(&vsp, packed, fpscr);
+        if (vsp.exponent == 0 && vsp.significand)
+            vfp_single_normalise_denormal(&vsp);
+    }
+
     if (negate & NEG_MULTIPLY)
         vsp.sign = vfp_sign_negate(vsp.sign);
 
@@ -1269,4 +1289,55 @@ u32 vfp_single_cpdo(ARMul_State* state, u32 inst, u32 fpscr) {
 
 invalid:
     return (u32)-1;
+}
+
+/* --------------------------------------------------------------------------
+ * NEON F32 lane helpers.
+ *
+ * Advanced SIMD floating-point is always single-precision fast-mode, so the
+ * caller passes an FPSCR with flush-to-zero and default-NaN forced on. These
+ * take a packed F32 in each u32 and return the packed result, reusing the same
+ * IEEE kernels the scalar VFP path uses (so the results match). NEON discards
+ * the FP cumulative exception flags, so the exceptions the core reports are
+ * dropped here rather than written back to FPSCR.
+ * ------------------------------------------------------------------------ */
+static void vfp_neon_f32_unpack(struct vfp_single* vs, s32 v, u32 fpscr, u32* exc) {
+    *exc |= vfp_single_unpack(vs, v, fpscr);
+    if (vs->exponent == 0 && vs->significand)
+        vfp_single_normalise_denormal(vs);
+}
+
+u32 vfp_neon_f32_add(u32 a, u32 b, u32 fpscr) {
+    struct vfp_single vsd, vsn, vsm;
+    u32 exc = 0;
+    vfp_neon_f32_unpack(&vsn, (s32)a, fpscr, &exc);
+    vfp_neon_f32_unpack(&vsm, (s32)b, fpscr, &exc);
+    exc |= vfp_single_add(&vsd, &vsn, &vsm, fpscr);
+    return (u32)vfp_single_normalise_round_pack(&vsd, fpscr, &exc);
+}
+
+u32 vfp_neon_f32_sub(u32 a, u32 b, u32 fpscr) {
+    return vfp_neon_f32_add(a, vfp_single_packed_negate(b), fpscr);
+}
+
+u32 vfp_neon_f32_mul(u32 a, u32 b, u32 fpscr) {
+    struct vfp_single vsd, vsn, vsm;
+    u32 exc = 0;
+    vfp_neon_f32_unpack(&vsn, (s32)a, fpscr, &exc);
+    vfp_neon_f32_unpack(&vsm, (s32)b, fpscr, &exc);
+    exc |= vfp_single_multiply(&vsd, &vsn, &vsm, fpscr);
+    return (u32)vfp_single_normalise_round_pack(&vsd, fpscr, &exc);
+}
+
+// Non-fused multiply-accumulate: two separate roundings, matching ARMv7 NEON.
+u32 vfp_neon_f32_mla(u32 d, u32 a, u32 b, u32 fpscr) {
+    return vfp_neon_f32_add(d, vfp_neon_f32_mul(a, b, fpscr), fpscr);
+}
+
+u32 vfp_neon_f32_mls(u32 d, u32 a, u32 b, u32 fpscr) {
+    return vfp_neon_f32_sub(d, vfp_neon_f32_mul(a, b, fpscr), fpscr);
+}
+
+u32 vfp_neon_f32_abd(u32 a, u32 b, u32 fpscr) {
+    return vfp_single_packed_abs(vfp_neon_f32_sub(a, b, fpscr));
 }

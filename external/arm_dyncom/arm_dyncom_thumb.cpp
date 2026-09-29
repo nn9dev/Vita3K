@@ -391,7 +391,7 @@ ThumbDecodeStatus TranslateThumbInstruction(u32 addr, u32 instr, u32* ainstr, u3
 
         // There is no single ARM instruction equivalent for this instruction. Also, it should only
         // ever be matched with the fmt19 "BL instruction 1" instruction. However, we do allow the
-        // simulation of it on its own, with undefined results if r14 is not suitably initialised.
+        // simulation of it on its own, with undefined results if r14 is not suitably initialized.
 
         valid = ThumbDecodeStatus::BRANCH;
         break;

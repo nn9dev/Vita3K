@@ -4,7 +4,9 @@
 #pragma warning(disable : 4200)
 #endif
 
+#include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include "common/common_types.h"
 
 struct ARMul_State;
@@ -616,6 +618,15 @@ typedef ARM_INST_PTR (*transop_fp_t)(unsigned int, int);
 extern const transop_fp_t arm_instruction_trans[];
 extern const std::size_t arm_instruction_trans_len;
 
-#define TRANS_CACHE_SIZE (64 * 1024 * 2000)
-extern char trans_cache_buf[TRANS_CACHE_SIZE];
-extern std::size_t trans_cache_buf_top;
+// Per-thread translation buffer size
+// Under Vita3K each guest thread runs on its own host thread with its own ARMul_State
+// Thus, a per-thread translation cache makes the most sense 
+#define TRANS_CACHE_SIZE (32 * 1024 * 1024)
+
+// The ARMul_State whose per-thread cache the translate functions allocate into
+extern thread_local ARMul_State* trans_cache_owner;
+
+// Global cache-invalidation generation
+// invalidate_jit_cache bumps this, then each core compares it against its own 
+// ARMul_State::local_translation_generation at DISPATCH and resets its own cache when it changes
+extern std::atomic<std::uint64_t> translation_generation;
