@@ -220,16 +220,19 @@
       },
       "cacheVariables": {
         "USE_DISCORD_RICH_PRESENCE": false,
-        "CMAKE_SYSTEM_NAME": "iOS",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_SYSROOT": "iphoneos",
         "VCPKG_TARGET_TRIPLET": "arm64-ios"
+
       }
     },
     {
       "name": "ios-ninja",
       "inherits": "ios",
       "displayName": "iOS with Ninja",
-      "description": "macOS native build using Ninja Multi-Config generator and default compiler",
+      "description": "iOS native build using Ninja Multi-Config generator and default compiler",
       "generator": "Ninja Multi-Config"
     },
     {
@@ -237,6 +240,39 @@
       "inherits": "ios",
       "displayName": "iOS with Xcode",
       "description": "iOS native build using Xcode generator and default compiler",
+      "generator": "Xcode"
+    },
+    {
+      "name": "ios-simulator",
+      "inherits": "base",
+      "displayName": "iOS Simulator default",
+      "description": "iOS native build using default generator and default compiler",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "USE_DISCORD_RICH_PRESENCE": false,
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_SYSROOT": "iphonesimulator",
+        "VCPKG_TARGET_TRIPLET": "arm64-ios-simulator"
+      }
+    },
+    {
+      "name": "ios-simulator-ninja",
+      "inherits": "ios-simulator",
+      "displayName": "iOS Simulator with Ninja",
+      "description": "iOS Simulator build using Ninja Multi-Config generator and default compiler",
+      "generator": "Ninja Multi-Config"
+    },
+    {
+      "name": "ios-simulator-xcode",
+      "inherits": "ios-simulator",
+      "displayName": "iOS Simulator with Xcode",
+      "description": "iOS Simulator build using Xcode generator and default compiler",
       "generator": "Xcode"
     }
   ],

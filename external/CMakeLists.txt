@@ -248,6 +248,7 @@ target_include_directories(CLI11 INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/cli11")
 
 add_library(vulkan INTERFACE)
 target_include_directories(vulkan INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator-Hpp/Vulkan-Headers/include")
+# MoltenVK
 if(APPLE AND Darwin)
 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar")
 		message(STATUS "Downloading MoltenVK for macOS...")
@@ -261,7 +262,7 @@ if(APPLE AND Darwin)
 	target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
 	set(MOLTENVK_DYLIB "${CMAKE_BINARY_DIR}/external/MoltenVK/dylib/macOS/libMoltenVK.dylib" PARENT_SCOPE)
 	message(STATUS "Using MoltenVK dylib \(macOS\)")
-elseif(APPLE AND IOS) # use the xcframework for iOS since iOS doesn't like the raw dylib much
+elseif(APPLE AND IOS AND CMAKE_OSX_SYSROOT STREQUAL "iphoneos") # use the xcframework for iOS since iOS doesn't like the raw dylib much
 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-ios.tar")
 		message(STATUS "Downloading MoltenVK for iOS...")
 		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-ios.tar
@@ -274,6 +275,19 @@ elseif(APPLE AND IOS) # use the xcframework for iOS since iOS doesn't like the r
 	target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
 	set(MOLTENVK_XCFRAMEWORK "${CMAKE_BINARY_DIR}/external/MoltenVK/dynamic/MoltenVK.xcframework" PARENT_SCOPE)
 	message(STATUS "Using MoltenVK xcframework (iOS)")
+elseif(APPLE AND IOS AND IS_IOS_SIMULATOR)
+	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-all.tar")
+		message(STATUS "Downloading MoltenVK for iOS Simulator...")
+		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-all.tar
+			"${CMAKE_BINARY_DIR}/external/MoltenVK-all.tar" SHOW_PROGRESS)
+	endif()
+	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK")
+		execute_process(COMMAND tar xf "${CMAKE_BINARY_DIR}/external/MoltenVK-all.tar" --strip-components=1 MoltenVK/MoltenVK 
+			WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external")
+	endif()
+	target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
+	set(MOLTENVK_XCFRAMEWORK "${CMAKE_BINARY_DIR}/external/MoltenVK/dynamic/MoltenVK.xcframework" PARENT_SCOPE)
+	message(STATUS "Using MoltenVK framework (iOS Simulator)")
 elseif(ANDROID AND NOT (CMAKE_BUILD_TYPE STREQUAL "Release"))
 	# add validation layer
 	if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../android/prebuilt/${ANDROID_ABI}/libVkLayer_khronos_validation.so")
