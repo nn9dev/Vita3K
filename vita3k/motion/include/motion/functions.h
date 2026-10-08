@@ -28,7 +28,7 @@ void set_gyro_bias_correction(MotionState &state, SceBool setValue);
 SceBool get_tilt_correction(MotionState &state);
 void set_tilt_correction(MotionState &state, SceBool setValue);
 SceBool get_deadband(MotionState &state);
-#if defined(__ANDROID__) || defined(TARGET_OS_IPHONE)
+#if defined(__ANDROID__) || (TARGET_OS_IOS == 1)
 void set_display_rotation(MotionState &state, int rotation);
 #endif
 void set_deadband(MotionState &state, SceBool setValue);

@@ -286,10 +286,16 @@ static ExitCode parse(Config &cfg, const fs::path &load_path, const fs::path &ro
     if (cfg.vita_fs_path.empty())
         cfg.set_vita_fs_path(root_vita_fs_path);
     else {
+#if (TARGET_OS_IOS == 1)
+        // The iOS simulator generates a new container UUID on each new build installed to it
+        // so this updates the pref-path in the config.yml on each start to ensure it's in sync
+        cfg.set_vita_fs_path(root_vita_fs_path);
+#else
         if (cfg.get_vita_fs_path() != root_vita_fs_path && !fs::exists(cfg.get_vita_fs_path())) {
             LOG_ERROR("Cannot find Vita FS path: {}", cfg.vita_fs_path);
             return InvalidApplicationPath;
         }
+#endif
     }
 
     return Success;

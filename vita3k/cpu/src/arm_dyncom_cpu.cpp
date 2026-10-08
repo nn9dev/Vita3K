@@ -27,10 +27,9 @@
 #include <limits>
 
 // The DynCom interpreter keeps the NZCV/T flags in dedicated fields for speed and
-// only syncs them with Cpsr at run-loop boundaries (LOAD_NZCVT on entry,
-// SAVE_NZCVT on exit). Consequently Cpsr is authoritative outside InterpreterMainLoop,
-// so all the accessors below read/write Cpsr directly, like how DynarmicCPU
-// treats jit->Cpsr().
+// only syncs them with Cpsr at loop boundaries (LOAD_NZCVT on entry, SAVE_NZCVT on exit)
+// Cpsr is authoritative outside InterpreterMainLoop so all the accessors below
+// read or write Cpsr directly like how DynarmicCPU treats jit->Cpsr()
 
 // Only user mode (USER32MODE) is emulated. Vita3K processes SVCs as HLE
 // rather than through ARM mode switches, so the banked
@@ -41,8 +40,6 @@ ArmDynComCPU::ArmDynComCPU(CPUState *state, std::size_t processor_id, bool cpu_o
     , core_id(processor_id)
     , cpu_opt(cpu_opt) {
     this->state = std::make_unique<ARMul_State>(state->mem, USER32MODE);
-    // Fast path is available only when optimizations are on,
-    // it also gets turned off  whenever memory logging is enabled (set_log_mem)
     this->state->fastmem = cpu_opt;
     this->state->log_mem = log_mem;
 }
@@ -55,10 +52,8 @@ int ArmDynComCPU::run() {
     parent->svc_called = false;
     state->svc_called = false;
     state->wfi_halt = false;
+    state->halt_requested.store(false, std::memory_order_relaxed);
 
-    // Run until the interpreter stops itself (SVC, breakpoint, WFI)
-    // or propmpted by stop() zeroing NumInstrsToExecute
-    // dynarmic_cpu also does `1ull << 60;` so :)
     state->NumInstrsToExecute = 1ull << 60;
     InterpreterMainLoop(state.get());
 
@@ -76,6 +71,7 @@ int ArmDynComCPU::step() {
     parent->svc_called = false;
     state->svc_called = false;
     state->wfi_halt = false;
+    state->halt_requested.store(false, std::memory_order_relaxed);
 
     state->NumInstrsToExecute = 1;
     InterpreterMainLoop(state.get());
@@ -92,6 +88,7 @@ int ArmDynComCPU::step() {
 
 void ArmDynComCPU::stop() {
     // Ask the interpreter to bail out at the next dispatch boundary
+    state->halt_requested.store(true, std::memory_order_relaxed);
     state->NumInstrsToExecute = 0;
 }
 
@@ -200,17 +197,14 @@ void ArmDynComCPU::trigger_breakpoint() {
 
 void ArmDynComCPU::set_log_code(bool log) {
     // arm_dyncom does not yet have a per-instruction translation hook like
-    // dynarmic's PreCodeTranslationHook so code tracing is not wired up yet
-    // Track the flag so get_log_code() stays consistent for callers
+    // dynarmic's PreCodeTranslationHook so code tracing is not wired up yet.
+    // We can still track the flag so get_log_code() stays consistent for callers
     log_code = log;
 }
 
 void ArmDynComCPU::set_log_mem(bool log) {
     log_mem = log;
     state->log_mem = log;
-    // Mem logging forces the validating path,
-    // so keep the direct path enabled only
-    // when requested (cpu_opt) and logging is off
     state->fastmem = cpu_opt && !log;
 }
 
@@ -231,10 +225,8 @@ std::size_t ArmDynComCPU::processor_id() const {
 }
 
 void ArmDynComCPU::invalidate_jit_cache(Address start, size_t length) {
-    // The interpreter caches decoded instructions keyed by guest PC and appends
-    // their translations to a shared buffer. There is no range-based
-    // invalidation so, as Citra's ARM_DynCom did, drop the whole decoded cache
-    // and rewind the translation buffer
-    state->instruction_cache.clear();
-    trans_cache_buf_top = 0;
+    // Deferred self-invalidation
+    // bumping the global generation makes all cores drop their own caches
+    // there is no range-based invalidation
+    translation_generation.fetch_add(1, std::memory_order_release);
 }
