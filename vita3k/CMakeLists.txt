@@ -106,6 +106,12 @@ if(NOT MOBILE)
 	include(${CMAKE_SOURCE_DIR}/cmake/qt6.cmake)
 endif()
 
+# This includes TargetConditionals across every compilation unit so we can use TARGET_OS_IOS/TARGET_OS_OSX
+# because for whatever reason Apple doesn't care to put defines in their toolchain(s)
+if(APPLE)
+	add_compile_options("SHELL:-include TargetConditionals.h")
+endif()
+
 add_subdirectory(app)
 add_subdirectory(audio)
 add_subdirectory(camera)
@@ -219,45 +225,67 @@ if(MOBILE)
 			"${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
 			"${CMAKE_CURRENT_SOURCE_DIR}/*.inc"
 		)
-
-		list(FILTER FRAMEWORK_HEADER_GLOB EXCLUDE REGEX "\/gui-qt\/|\/android\/|\/ios\/|platform_api\.h$")
-		list(APPEND FRAMEWORK_PUBLIC_HEADERS  ${FRAMEWORK_HEADER_GLOB})
 		
-		set(FRAMEWORK_HEADER_GLOB "")
-		# bonus glob for files in vcpkg_installed/{vcpkg_arch}/include/
-		# this is needed for boost, curl, etc. that gets installed thru vcpkg
-		file(GLOB_RECURSE FRAMEWORK_HEADER_GLOB
-			"${CMAKE_SOURCE_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/*.h"
-			"${CMAKE_SOURCE_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/*.hpp"
+		file(GLOB_RECURSE FMT_HEADER_GLOB
+			"${CMAKE_SOURCE_DIR}/external/fmt/*.h"
+			"${CMAKE_SOURCE_DIR}/external/spdlog/*.h"
 		)
 
-		LIST(APPEND FRAMEWORK_VCPKG_PUBLIC_HEADERS  ${FRAMEWORK_HEADER_GLOB})
+		list(FILTER FRAMEWORK_HEADER_GLOB EXCLUDE REGEX "\/gui-qt\/|\/android\/|\/ios\/|platform_api\.h$")
+		list(APPEND FRAMEWORK_PUBLIC_HEADERS  ${FRAMEWORK_HEADER_GLOB} ${FMT_HEADER_GLOB})
+		
+		set(FRAMEWORK_HEADER_GLOB "")
+		# bonus glob for files in build/{preset}vcpkg_installed/{triplet}/include/
+		# this is needed for boost, curl, etc. that gets installed thru vcpkg
+		# use VCPKG_INSTALLED_DIR instead of hardcoding root vcpkg_installed (previously this was wrong)
+		set(VCPKG_INCLUDE_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
+		foreach(module filesystem assert atomic config cstdint container_hash core detail
+		functional io iterator predef scope smart_ptr system type_traits mp11 mpl)
+			file(GLOB_RECURSE FRAMEWORK_HEADER_GLOB
+			"${VCPKG_INCLUDE_DIR}/boost/${module}.hpp"
+			"${VCPKG_INCLUDE_DIR}/boost/${module}/*.h"
+			"${VCPKG_INCLUDE_DIR}/boost/${module}/*.hpp")
+			LIST(APPEND FRAMEWORK_VCPKG_PUBLIC_HEADERS  ${FRAMEWORK_HEADER_GLOB})
+		endforeach()
+		file(GLOB FWD_HEADER_GLOB "${VCPKG_INCLUDE_DIR}/boost/*_fwd.hpp")
+		file(GLOB CSTD_HEADER_GLOB "${VCPKG_INCLUDE_DIR}/boost/ctsd*.hpp")
+
+		LIST(APPEND FRAMEWORK_VCPKG_PUBLIC_HEADERS ${FWD_HEADER_GLOB} ${CSTD_HEADER_GLOB}
+					"${VCPKG_INCLUDE_DIR}/boost/version.hpp")
+		#message(STATUS "FRAMEWORK_VCPKG_PUBLIC_HEADERS: ${FRAMEWORK_VCPKG_PUBLIC_HEADERS}")
+		
+		# for when i eventually can't take it any more
+		#[[
+		file(GLOB_RECURSE BOOST_FRAMEWORK_HEADER_GLOB
+			"${CMAKE_SOURCE_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include/boost/*.h"
+			"${CMAKE_SOURCE_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include/boost/*.hpp")
+		LIST(APPEND FRAMEWORK_VCPKG_PUBLIC_HEADERS  ${BOOST_FRAMEWORK_HEADER_GLOB})
+		#]]
+
+		#LIST(APPEND FRAMEWORK_VCPKG_PUBLIC_HEADERS  ${FRAMEWORK_HEADER_GLOB})
 		#LIST(APPEND FRAMEWORK_PUBLIC_HEADERS  ${FRAMEWORK_VCPKG_PUBLIC_HEADERS})
 
 		add_library(vita3k SHARED
 			"${FRAMEWORK_PUBLIC_HEADERS}"
+			"${FRAMEWORK_VCPKG_PUBLIC_HEADERS}"
 			interface.h
 			interface.cpp
 			performance.cpp
 			#platform_api.h
 			#platform_api.cpp
+			config/include/config/config.h
 			core/api.h
 			core/api.cpp
 			#ios/ios_init.mm
 		)
 
 		target_include_directories(vita3k PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-		#target_sources(vita3k
-		#	PUBLIC FILE_SET public_headers
-		#		TYPE HEADERS
-		#		FILES "${FRAMEWORK_PUBLIC_HEADERS}"
-		#)
 		target_link_libraries(vita3k PRIVATE SDL3::SDL3 pugixml::pugixml)
 
 		set_target_properties(vita3k PROPERTIES
 			FRAMEWORK TRUE
   			MACOSX_FRAMEWORK_IDENTIFIER org.vita3k.dylib
-			#MACOSX_FRAMEWORK_INFO_PLIST Info.plist # leaving this undeclared generates a basic info.plist
+			#MACOSX_FRAMEWORK_INFO_PLIST ${CMAKE_BINARY_DIR}/ios/iOSFramework-Info.plist
 			# "current version" in semantic format in Mach-O binary file
 			VERSION "${VITA3K_APP_VER_HI}.${VITA3K_APP_VER_MID}.${VITA3K_APP_VER_LO}"
 			# "compatibility version" in semantic format in Mach-O binary file
@@ -274,7 +302,7 @@ if(MOBILE)
 		##[[
 		# this is the afforementioned "another fun little dance" for Headers/
 		# Place each header into Headers/<subdir>/ preserving directory structure
-		# This avoids the flat-copy conflicts that come from specifying files with PUBLIC_HEADER
+		# This avoids the flat copy problem that happens when you specify files with PUBLIC_HEADER
 		foreach(HEADER ${FRAMEWORK_PUBLIC_HEADERS})
 			file(RELATIVE_PATH REL_HEADER "${CMAKE_CURRENT_SOURCE_DIR}" "${HEADER}")
 			get_filename_component(HEADER_DIR "${REL_HEADER}" DIRECTORY)
@@ -293,6 +321,16 @@ if(MOBILE)
 					MACOSX_PACKAGE_LOCATION "Headers/${HEADER_DIR}"
 				)
 			endif()
+		endforeach()
+
+		# Same dance for vcpkg-provided headers but their vcpkg folders are actually
+		# the vcpkg_installed folder inside their build folder
+		foreach(HEADER ${FRAMEWORK_VCPKG_PUBLIC_HEADERS})
+			file(RELATIVE_PATH REL_HEADER "${VCPKG_INCLUDE_DIR}" "${HEADER}")
+			get_filename_component(HEADER_DIR "${REL_HEADER}" DIRECTORY)
+			set_source_files_properties("${HEADER}" PROPERTIES
+				MACOSX_PACKAGE_LOCATION "Headers/${HEADER_DIR}"
+			)
 		endforeach()
 		#message(STATUS "${VITA3K_PUBLIC_HEADERS}")
 		#]]
@@ -428,51 +466,36 @@ if(APPLE AND NOT IOS)
 		COMMAND codesign --force --deep --preserve-metadata=entitlements,requirements,flags,runtime --sign - "$<TARGET_FILE_DIR:vita3k>/../..")
 elseif(APPLE AND IOS)
     # iOS uses AppIcon asset catalog instead of .icns
-    # Generate the icon at various sizes into an asset catalog
-	#[[
-    set(ICONSET_DIR "${CMAKE_CURRENT_BINARY_DIR}/AppIcon.appiconset")
-    add_custom_command(
-        OUTPUT "${ICONSET_DIR}/Contents.json"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${ICONSET_DIR}"
-        COMMAND sips -z 20 20     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_20x20.png"
-        COMMAND sips -z 40 40     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_20x20@2x.png"
-        COMMAND sips -z 60 60     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_20x20@3x.png"
-        COMMAND sips -z 29 29     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_29x29.png"
-        COMMAND sips -z 58 58     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_29x29@2x.png"
-        COMMAND sips -z 87 87     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_29x29@3x.png"
-        COMMAND sips -z 76 76     "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_76x76.png"
-        COMMAND sips -z 152 152   "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_76x76@2x.png"
-        COMMAND sips -z 167 167   "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_83.5x83.5@2x.png"
-        COMMAND sips -z 120 120   "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_60x60@2x.png"
-        COMMAND sips -z 180 180   "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_60x60@3x.png"
-        COMMAND sips -z 1024 1024 "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" --out "${ICONSET_DIR}/icon_1024x1024.png"
-        COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/AppIcon-Contents.json" "${ICONSET_DIR}/Contents.json"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Vita3K.png" "${CMAKE_CURRENT_SOURCE_DIR}/AppIcon-Contents.json"
-	)
-
-    target_sources(vita3k PRIVATE "${ICONSET_DIR}/Contents.json")
-    set_source_files_properties("${ICONSET_DIR}/Contents.json"
-        PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/AppIcon.appiconset")
-
-	#]]
+	set(IPHONEOS_DEPLOYMENT_TARGET "16.0")
+	if(IS_IOS_SIMULATOR)
+		set(IOS_BUNDLE_SUPPORTED_PLATFORM "iPhoneSimulator")
+	else()
+		set(IOS_BUNDLE_SUPPORTED_PLATFORM "iPhoneOS")
+	endif()
 
 	# put shaders-builtin inside the framework
 	# 1. so i don't have to bundle them in the app
 	# 2. things stay a bit more portable
-	# Bundle.resourcePath lands you in the Resources directory
+	# 3. there is no Resources/ directory on ios frameworks
     add_custom_command(
         TARGET vita3k
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/shaders-builtin"
-            "$<TARGET_BUNDLE_CONTENT_DIR:vita3k>/Resources/shaders-builtin")
+            "$<TARGET_BUNDLE_CONTENT_DIR:vita3k>/shaders-builtin")
 
     # embed MoltenVK xcframework (no dylib on iOS)
 	message(STATUS "MoltenVK xcframework path: ${MOLTENVK_XCFRAMEWORK}")
     set_target_properties(vita3k PROPERTIES
+	 	XCODE_ATTRIBUTE_GENERATE_INFOPLIST_FILE "YES"
+		XCODE_ATTRIBUTE_INFOPLIST_FILE ""
     	XCODE_ATTRIBUTE_FRAMEWORK_SEARCH_PATHS "${CMAKE_BINARY_DIR}/external/MoltenVK/dynamic"
-    	XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "15.6"
+    	XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "16.0"
     	XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+		XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "${VITA3K_APP_VER_HI}.${VITA3K_APP_VER_MID}.${VITA3K_APP_VER_LO}"
+		XCODE_ATTRIBUTE_MARKETING_VERSION "${VITA3K_APP_VER_HI}.${VITA3K_APP_VER_MID}.${VITA3K_APP_VER_LO}"
+		XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "${IOS_BUNDLE_SUPPORTED_PLATFORM}"
+		XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER org.vita3k.dylib
 	)
 target_link_libraries(vita3k PRIVATE "${MOLTENVK_XCFRAMEWORK}")
 

@@ -13,6 +13,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
 	set(MOBILE 1)
 	#set(VCPKG_TARGET_IOS 1)
 	include("cmake/vcpkg_ios.cmake")
+	message(STATUS ${CMAKE_OSX_SYSROOT})
 endif()
 
 project(Vita3K)
@@ -325,9 +326,8 @@ if(IOS)
 # but at least i now have that make_modulemap.sh that can pick out all the headers I need
 # Maybe I can make an xcframework?
 
-##[[
 # generate and set the modulemap file for the project
-	execute_process(COMMAND bash ${PROJECT_SOURCE_DIR}/ios/make-modulemap.sh 
+	execute_process(COMMAND bash ${PROJECT_SOURCE_DIR}/ios/make_modulemap.sh 
 		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 	)
 	set_target_properties(vita3k PROPERTIES
@@ -335,51 +335,5 @@ if(IOS)
 		XCODE_ATTRIBUTE_DEFINES_MODULE "YES"
 		XCODE_ATTRIBUTE_CLANG_ENABLE_MODULES "NO"
 	)
-#[[
-	#stupid thing i have to do because a full recursive include includes concurrentqueue's dlib which blows everything up
-	# it recurses through every cmake target of ("parameter") and finds what was declared as their include paths
-	# and outputs them in a list
-set(all_includes "")
-function(collect_includes_recursive dir)
-    get_property(targets DIRECTORY ${dir} PROPERTY BUILDSYSTEM_TARGETS)
-    get_property(subdirs DIRECTORY ${dir} PROPERTY SUBDIRECTORIES)
-
-    foreach(target ${targets})
-        get_target_property(includes ${target} INTERFACE_INCLUDE_DIRECTORIES)
-        if(includes)
-            foreach(inc ${includes})
-				if(inc MATCHES "INSTALL_INTERFACE")
-    				continue()
-				endif()
-				string(REGEX MATCH "\\$<BUILD_INTERFACE:(/[^ ;,>\"]*)>" bi_match "${inc}")
-				if(bi_match)
-					set(stripped "${CMAKE_MATCH_1}")
-				else()
-					string(REGEX MATCH "/[^ ;,>\"]+" stripped "${inc}")
-				endif()
-				string(STRIP "${stripped}" stripped)
-				if(stripped)
-					list(APPEND all_includes "${stripped}")
-				endif()
-            endforeach()
-        endif()
-    endforeach()
-
-    foreach(subdir ${subdirs})
-        collect_includes_recursive(${subdir})
-    endforeach()
-
-    set(all_includes "${all_includes}" PARENT_SCOPE)
-endfunction()
-
-collect_includes_recursive("external")
-list(REMOVE_DUPLICATES all_includes)
-list(JOIN all_includes "\n" joined)
-#message(STATUS "All external includes: \n${joined}")
-
-# bonus includes:
-# "build/ios-xcode/vita3k/config/gitver.h"
-# "build/ios-xcode/vita3k/lang/generated/generated_catalog.h"
-]]
 
 endif()

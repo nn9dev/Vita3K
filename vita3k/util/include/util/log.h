@@ -17,7 +17,9 @@
 
 #pragma once
 
+#ifndef SPDLOG_ACTIVE_LEVEL
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#endif
 
 #include <boost/core/demangle.hpp>
 #include <boost/describe/enum.hpp>

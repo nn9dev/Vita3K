@@ -283,10 +283,16 @@ static ExitCode parse(Config &cfg, const fs::path &load_path, const fs::path &ro
     if (cfg.pref_path.empty())
         cfg.set_pref_path(root_pref_path);
     else {
+#if (TARGET_OS_IOS == 1)
+        // The iOS simulator generates a new container UUID on each new build installed to it
+        // so this updates the pref-path in the config.yml on each start to ensure it's in sync
+        cfg.set_pref_path(root_pref_path);
+#else
         if (cfg.get_pref_path() != root_pref_path && !fs::exists(cfg.get_pref_path())) {
             LOG_ERROR("Cannot find preference path: {}", cfg.pref_path);
             return InvalidApplicationPath;
         }
+#endif
     }
 
     return Success;
