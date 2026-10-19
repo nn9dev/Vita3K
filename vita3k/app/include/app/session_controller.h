@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <app/functions.h>
 #include <emuenv/state.h>
 #include <renderer/state.h>
 
@@ -89,6 +90,10 @@ private:
     bool input_intercepted = false;
     std::atomic<bool> stop_requested_flag{ false };
     std::function<void()> pause_state_changed_callback;
+
+#if (TARGET_OS_IOS == 1)
+    LaunchRuntimeMetrics runtime_metrics;
+#endif
 };
 
 const char *to_string(AppSessionPhase phase);

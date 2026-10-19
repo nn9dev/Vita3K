@@ -20,6 +20,7 @@
 #include <emuenv/window.h>
 #include <util/fs.h>
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -147,6 +148,14 @@ public:
     float fps_values[20] = {};
     uint32_t current_fps_offset = 0;
     uint32_t ms_per_frame = 0;
+#if (TARGET_OS_IOS == 1)
+    // iOS-exclusive function to update frame counter via update_runtime_metrics
+    // This is called inside each vblank_sync_thread because it seemed like a good per-loop stopping point?
+    // tbh either display or renderer should handle the frame metrics instead of app but w/e
+    // in the future, all the on_frame_metrics stuff could (should?) become platform-agnostic and
+    // find a new home somewhere else
+    std::function<void()> on_frame_metrics;
+#endif
     renderer::Backend backend_renderer{};
     RendererPtr renderer{};
     std::unique_ptr<renderer::VulkanDeviceInfo> vulkan_device_info;
