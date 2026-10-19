@@ -32,6 +32,7 @@ namespace {
 
 void copy_global_to_current(Config::CurrentConfig &current, const Config &cfg) {
     current.cpu_opt = cfg.cpu_opt;
+    current.cpu_backend = cfg.cpu_backend;
     current.modules_mode = cfg.modules_mode;
     current.lle_modules = cfg.lle_modules;
     current.backend_renderer = cfg.backend_renderer;
@@ -77,6 +78,7 @@ void copy_global_to_current(Config::CurrentConfig &current, const Config &cfg) {
 
 void copy_current_to_global(Config &cfg, const Config::CurrentConfig &current) {
     cfg.cpu_opt = current.cpu_opt;
+    cfg.cpu_backend = current.cpu_backend;
     cfg.modules_mode = current.modules_mode;
     cfg.lle_modules = current.lle_modules;
     cfg.backend_renderer = current.backend_renderer;
@@ -133,6 +135,7 @@ std::vector<RestartRequiredSetting> get_restart_required_settings(
     };
 
     append_if_changed(before.cpu_opt != after.cpu_opt, RestartRequiredSetting::CpuOpt);
+    append_if_changed(before.cpu_backend != after.cpu_backend, RestartRequiredSetting::CpuBackend);
     append_if_changed(before.backend_renderer != after.backend_renderer, RestartRequiredSetting::BackendRenderer);
     append_if_changed(before.gpu_idx != after.gpu_idx, RestartRequiredSetting::GraphicsDevice);
 #ifdef __ANDROID__
@@ -176,8 +179,10 @@ bool load_custom_config(Config::CurrentConfig &out, const fs::path &config_path,
             out.lle_modules.emplace_back(m.text().as_string());
     }
 
-    if (!config_child.child("cpu").empty())
+    if (!config_child.child("cpu").empty()) {
         out.cpu_opt = config_child.child("cpu").attribute("cpu-opt").as_bool();
+        out.cpu_backend = config_child.child("cpu").attribute("cpu-backend").as_string("Dynarmic");
+    }
 
     if (!config_child.child("gpu").empty()) {
         const auto gpu = config_child.child("gpu");
@@ -267,6 +272,7 @@ bool save_custom_config(const Config::CurrentConfig &cc, const fs::path &config_
 
     auto cpu_child = config_child.append_child("cpu");
     cpu_child.append_attribute("cpu-opt") = cc.cpu_opt;
+    cpu_child.append_attribute("cpu-backend") = cc.cpu_backend.c_str();
 
     auto gpu_child = config_child.append_child("gpu");
     gpu_child.append_attribute("backend-renderer") = cc.backend_renderer.c_str();

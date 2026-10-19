@@ -15,7 +15,9 @@ src/dynarmic_cpu.cpp
 if(ENABLE_ARM_DYNCOM)
 	list(APPEND SOURCE_LIST
 		include/cpu/impl/arm_dyncom_cpu.h
-		src/arm_dyncom_cpu.cpp)
+		src/arm_dyncom_cpu.cpp
+		include/cpu/impl/sanity_check_cpu.h
+		src/sanity_check_cpu.cpp)
 endif()
 
 add_library(

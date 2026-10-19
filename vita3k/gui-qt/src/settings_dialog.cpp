@@ -290,6 +290,7 @@ void SettingsDialog::load_config() {
     m_ui->cpu_backend_box->clear();
     m_ui->cpu_backend_box->addItem(QStringLiteral("Dynarmic"));
     m_ui->cpu_backend_box->addItem(QStringLiteral("Arm_DynCom"));
+    m_ui->cpu_backend_box->addItem(QStringLiteral("SanityCheck"));
     {
         const int idx = m_ui->cpu_backend_box->findText(
             QString::fromStdString(m_config.cpu_backend));
