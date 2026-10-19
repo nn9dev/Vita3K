@@ -26,6 +26,8 @@ QString restart_required_setting_label(config::RestartRequiredSetting setting) {
     switch (setting) {
     case config::RestartRequiredSetting::CpuOpt:
         return QCoreApplication::translate("SettingsDialogTooltips", "Enable CPU Optimizations");
+    case config::RestartRequiredSetting::CpuBackend:
+        return QCoreApplication::translate("SettingsDialogTooltips", "CPU Backend");
     case config::RestartRequiredSetting::BackendRenderer:
         return QCoreApplication::translate("SettingsDialogTooltips", "Backend Renderer");
     case config::RestartRequiredSetting::GraphicsDevice:
@@ -105,7 +107,8 @@ SettingsDialogTooltips::SettingsDialogTooltips(QObject *parent)
     , modules_automatic(tr("Automatically select modules to load. Recommended for most apps."))
     , modules_auto_manual(tr("Select this mode to load modules automatically in addition to selected modules from the list on the right."))
     , modules_manual(tr("Only load the modules selected from the list. Advanced users only."))
-    , cpu_opt(tr("Enable Dynarmic JIT optimizations. Improves performance."))
+    , cpu_opt(tr("Enable Dynarmic JIT optimizations or fastmem on any backend. Improves performance."))
+    , cpu_backend(tr("Select the CPU backend. Dynarmic (JIT) is fastest, Arm_DynCom is an interpreter. SanityCheck runs both CPUs to ensure parity (very slow, for debugging)."))
     , backend_renderer(tr("Select the preferred backend renderer. Vulkan is recommended for most systems."))
     , renderer_accuracy(tr("Set the renderer accuracy level for Vulkan. High accuracy may improve visuals but reduce performance."))
     , vsync(tr("Enable V-Sync for OpenGL. Reduces screen tearing."))

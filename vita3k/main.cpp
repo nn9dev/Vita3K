@@ -202,6 +202,7 @@ int main(int argc, char *argv[]) {
     LOG_INFO("OS: {}", QSysInfo::prettyProductName().toStdString());
     LOG_INFO("CPU: {}", util::get_system_info());
     LOG_INFO("Available ram memory: {} MiB", SDL_GetSystemRAM());
+    LOG_INFO("CPU Backend: {}", emuenv.cfg.cpu_backend);
 
     app::AppRunType run_type = app::AppRunType::Unknown;
     if (cfg.run_app_path)

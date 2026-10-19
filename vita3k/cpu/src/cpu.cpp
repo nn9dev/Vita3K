@@ -52,15 +52,14 @@ CPUStatePtr init_cpu(CPUBackend backend, bool cpu_opt, SceUID thread_id, std::si
     }
 
 #ifdef ENABLE_ARM_DYNCOM
-    // force arm_dyncom
-    backend = CPUBackend::ArmDynCom;
     if (backend == CPUBackend::ArmDynCom) {
         state->cpu = std::make_unique<ArmDynComCPU>(state.get(), processor_id, cpu_opt);
         return state;
     }
 #else
-    if (backend == CPUBackend::ArmDynCom) {
-        LOG_WARN("arm_dyncom backend requested but not built (ENABLE_ARM_DYNCOM=OFF); using Dynarmic");
+    if (backend == CPUBackend::ArmDynCom || backend == CPUBackend::SanityCheck) {
+        LOG_WARN("{} backend requested but not built (ENABLE_ARM_DYNCOM=OFF); using Dynarmic",
+            backend == CPUBackend::SanityCheck ? "SanityCheck" : "arm_dyncom");
     }
 #endif
 

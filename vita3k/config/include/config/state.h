@@ -73,6 +73,7 @@ struct Config {
      */
     struct CurrentConfig {
         bool cpu_opt = true;
+        std::string cpu_backend = "Dynarmic";
         int modules_mode = ModulesMode::AUTOMATIC;
         std::vector<std::string> lle_modules = {};
         std::string audio_backend = "SDL";
