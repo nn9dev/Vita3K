@@ -124,11 +124,18 @@ bool AppSessionController::load_and_run() {
     if (run_app(emuenv, main_module_id, active_launch_request) != Success)
         return false;
 
+    apply_runtime_settings(emuenv);
+
     frame_host->get().prepare_for_render_thread();
 
     renderer::start_render_thread(*emuenv.renderer, emuenv.display, emuenv.gxm, emuenv.mem, emuenv.cfg);
 
     frame_host->get().finalize_render_thread_start();
+
+#if (TARGET_OS_IOS == 1)
+    runtime_metrics = {};
+    emuenv.on_frame_metrics = [this]() { app::update_runtime_metrics(emuenv, runtime_metrics); };
+#endif
 
     set_phase(AppSessionPhase::Running);
     return true;
@@ -207,6 +214,10 @@ void AppSessionController::stop(const AppSessionStopReason reason) {
         active_frame_host->get().destroy_render_context();
 
     emuenv.motion.clear_device_motion_support();
+
+#if (TARGET_OS_IOS == 1)
+    emuenv.on_frame_metrics = nullptr;
+#endif
 
     {
         std::lock_guard<std::mutex> lock(mutex);

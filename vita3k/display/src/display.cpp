@@ -75,6 +75,11 @@ static void vblank_sync_thread(EmuEnvState &emuenv) {
                 }
             }
         }
+#if (TARGET_OS_IOS == 1)
+        if (emuenv.on_frame_metrics)
+            emuenv.on_frame_metrics();
+#endif
+
         const auto time_ms = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         const auto time_left = TARGET_MICRO_PER_FRAME - (time_ms % TARGET_MICRO_PER_FRAME);
         std::this_thread::sleep_for(std::chrono::microseconds(time_left));

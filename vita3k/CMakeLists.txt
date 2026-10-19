@@ -271,12 +271,9 @@ if(MOBILE)
 			interface.h
 			interface.cpp
 			performance.cpp
-			#platform_api.h
-			#platform_api.cpp
-			config/include/config/config.h
+			config/include/config/config.h # needed?
 			core/api.h
 			core/api.cpp
-			#ios/ios_init.mm
 		)
 
 		target_include_directories(vita3k PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -297,7 +294,6 @@ if(MOBILE)
 			PUBLIC
 			"$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/Vita3K.framework/Headers>"
 		)
-		#target_include_directories(vita3k PUBLIC "$(CONFIGURATION_BUILD_DIR)/Vita3K.framework/Headers")
 
 		##[[
 		# this is the afforementioned "another fun little dance" for Headers/
@@ -310,7 +306,7 @@ if(MOBILE)
 			if(HEADER_DIR MATCHES "\/include\/")
 				# HEADER_DIR is sometimes `thing/include/thing/` (want `thing/`)
 				# and sometimes `thing/include/thing/thing2` (want `thing/thing2`)
-				# in both cases the desired path is just whatever comes after `include/`
+				# in either case the desired path is just whatever comes after `include/`
 				string(REGEX REPLACE "^.*\/include\/" "" HEADER_DEST_DIR "${HEADER_DIR}")
 				set_source_files_properties("${HEADER}" PROPERTIES
 					MACOSX_PACKAGE_LOCATION "Headers/${HEADER_DEST_DIR}"
@@ -324,7 +320,7 @@ if(MOBILE)
 		endforeach()
 
 		# Same dance for vcpkg-provided headers but their vcpkg folders are actually
-		# the vcpkg_installed folder inside their build folder
+		# the vcpkg_installed folder inside their build folder (and not the one in root)
 		foreach(HEADER ${FRAMEWORK_VCPKG_PUBLIC_HEADERS})
 			file(RELATIVE_PATH REL_HEADER "${VCPKG_INCLUDE_DIR}" "${HEADER}")
 			get_filename_component(HEADER_DIR "${REL_HEADER}" DIRECTORY)

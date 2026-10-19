@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <app/functions.h>
 #include <emuenv/state.h>
 #include <renderer/state.h>
 
@@ -78,6 +79,10 @@ private:
     bool renderer_initialized = false;
     bool runtime_initialized = false;
     bool input_intercepted = false;
+
+#if (TARGET_OS_IOS == 1)
+    LaunchRuntimeMetrics runtime_metrics;
+#endif
 };
 
 const char *to_string(AppSessionPhase phase);
