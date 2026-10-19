@@ -262,7 +262,7 @@ if(APPLE AND Darwin)
 	target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
 	set(MOLTENVK_DYLIB "${CMAKE_BINARY_DIR}/external/MoltenVK/dylib/macOS/libMoltenVK.dylib" PARENT_SCOPE)
 	message(STATUS "Using MoltenVK dylib \(macOS\)")
-elseif(APPLE AND IOS AND CMAKE_OSX_SYSROOT STREQUAL "iphoneos") # use the xcframework for iOS since iOS doesn't like the raw dylib much
+elseif(IOS AND CMAKE_OSX_SYSROOT STREQUAL "iphoneos") # use the xcframework for iOS since iOS doesn't like the raw dylib much
 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-ios.tar")
 		message(STATUS "Downloading MoltenVK for iOS...")
 		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-ios.tar
@@ -275,7 +275,7 @@ elseif(APPLE AND IOS AND CMAKE_OSX_SYSROOT STREQUAL "iphoneos") # use the xcfram
 	target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
 	set(MOLTENVK_XCFRAMEWORK "${CMAKE_BINARY_DIR}/external/MoltenVK/dynamic/MoltenVK.xcframework" PARENT_SCOPE)
 	message(STATUS "Using MoltenVK xcframework (iOS)")
-elseif(APPLE AND IOS AND IS_IOS_SIMULATOR)
+elseif(IOS AND IS_IOS_SIMULATOR)
 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-all.tar")
 		message(STATUS "Downloading MoltenVK for iOS Simulator...")
 		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-all.tar

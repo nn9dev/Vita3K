@@ -255,6 +255,10 @@ static void retrieve_ctrl_data(EmuEnvState &emuenv, int port, bool is_v2, bool n
             buttons ^= ~0;
     };
 
+#if (TARGET_OS_IOS == 1)
+    SDL_UpdateGamepads();
+#endif
+
     if (state.overlay_input_intercepted.load(std::memory_order_relaxed) || emuenv.drop_inputs) {
         reset_axes();
         return;
