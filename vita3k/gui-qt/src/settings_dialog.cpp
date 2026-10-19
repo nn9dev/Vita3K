@@ -286,6 +286,16 @@ void SettingsDialog::load_config() {
     }
     populate_modules_list();
 
+    m_ui->cpu_backend_box->clear();
+    m_ui->cpu_backend_box->addItem(QStringLiteral("Dynarmic"));
+    m_ui->cpu_backend_box->addItem(QStringLiteral("Arm_DynCom"));
+    {
+        const int idx = m_ui->cpu_backend_box->findText(
+            QString::fromStdString(m_config.cpu_backend));
+        if (idx >= 0)
+            m_ui->cpu_backend_box->setCurrentIndex(idx);
+    }
+
     m_ui->cpu_opt->setChecked(m_config.cpu_opt);
 
     m_ui->backend_renderer_box->clear();
@@ -607,6 +617,7 @@ void SettingsDialog::build_desired_config(Config &desired) const {
     }
 
     current.cpu_opt = m_ui->cpu_opt->isChecked();
+    current.cpu_backend = m_ui->cpu_backend_box->currentText().toStdString();
     current.backend_renderer = m_ui->backend_renderer_box->currentText().toStdString();
     current.high_accuracy = m_ui->renderer_accuracy_box->currentIndex() == 1;
     current.v_sync = m_ui->vsync->isChecked();
@@ -1191,6 +1202,7 @@ void SettingsDialog::setup_connections() {
         { m_ui->rb_modules_auto_manual, tr("Auto & Manual"), m_tooltips->modules_auto_manual },
         { m_ui->rb_modules_manual, tr("Manual"), m_tooltips->modules_manual },
         // CPU
+        { m_ui->cpu_backend_box, tr("CPU Backend"), m_tooltips->cpu_backend },
         { m_ui->cpu_opt, tr("Enable CPU Optimizations"), m_tooltips->cpu_opt },
         // Graphics
         { m_ui->backend_renderer_box, tr("Backend Renderer"), m_tooltips->backend_renderer },

@@ -201,6 +201,9 @@ static Config::CurrentConfig get_runtime_current_config_after_save(
         case config::RestartRequiredSetting::CpuOpt:
             runtime_current.cpu_opt = previous_current.cpu_opt;
             break;
+        case config::RestartRequiredSetting::CpuBackend:
+            runtime_current.cpu_backend = previous_current.cpu_backend;
+            break;
         case config::RestartRequiredSetting::BackendRenderer:
             runtime_current.backend_renderer = previous_current.backend_renderer;
             break;

@@ -190,6 +190,7 @@ int main(int argc, char *argv[]) {
     LOG_INFO("OS: {}", CppCommon::Environment::OSVersion());
     LOG_INFO("CPU: {} | {} Threads | {} GHz", CppCommon::CPU::Architecture(), CppCommon::CPU::LogicalCores(), static_cast<float>(CppCommon::CPU::ClockSpeed()) / 1000.f);
     LOG_INFO("Available memory: {} MiB", SDL_GetSystemRAM());
+    LOG_INFO("CPU Backend: {}", emuenv.cfg.cpu_backend);
 
     app::AppRunType run_type = app::AppRunType::Unknown;
     if (cfg.run_app_path)

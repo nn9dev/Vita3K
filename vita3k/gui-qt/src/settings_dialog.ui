@@ -384,6 +384,33 @@ QGroupBox[flat=&quot;true&quot;]::title {
                  <number>6</number>
                 </property>
                 <item>
+                 <widget class="QGroupBox" name="gb_cpu_backend">
+                  <property name="title">
+                   <string>CPU Backend</string>
+                  </property>
+                  <property name="flat">
+                   <bool>true</bool>
+                  </property>
+                  <layout class="QVBoxLayout" name="gb_cpu_backend_layout">
+                   <property name="leftMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>6</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QComboBox" name="cpu_backend_box"/>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
                  <widget class="QGroupBox" name="gb_cpu_optimizations">
                   <property name="title">
                    <string>Dynarmic Settings</string>
