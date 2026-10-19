@@ -419,6 +419,8 @@ static ExitCode load_app_impl(SceUID &main_module_id, EmuEnvState &emuenv, const
     CPUBackend cpu_backend;
     if (emuenv.cfg.current_config.cpu_backend == "Arm_DynCom")
         cpu_backend = CPUBackend::ArmDynCom;
+    else if (emuenv.cfg.current_config.cpu_backend == "SanityCheck")
+        cpu_backend = CPUBackend::SanityCheck;
     else
         cpu_backend = CPUBackend::Dynarmic;
     if (!emuenv.kernel.init(emuenv.mem, call_import, emuenv.cfg.current_config.cpu_opt, cpu_backend)) {
@@ -435,6 +437,7 @@ static ExitCode load_app_impl(SceUID &main_module_id, EmuEnvState &emuenv, const
         logging::set_level(static_cast<spdlog::level::level_enum>(emuenv.cfg.log_level));
     }
 
+    LOG_INFO("CPU Backend: {}", emuenv.cfg.cpu_backend);
     LOG_INFO("CPU Optimisation state: {}", emuenv.cfg.current_config.cpu_opt);
     LOG_INFO("ngs state: {}", emuenv.cfg.current_config.ngs_enable);
     LOG_INFO("Resolution multiplier: {}", emuenv.cfg.resolution_multiplier);

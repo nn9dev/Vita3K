@@ -20,6 +20,7 @@
 #include <cpu/impl/dynarmic_cpu.h>
 #ifdef ENABLE_ARM_DYNCOM
 #include <cpu/impl/arm_dyncom_cpu.h>
+#include <cpu/impl/sanity_check_cpu.h>
 #endif
 #include <cpu/impl/interface.h>
 #include <cpu/state.h>
@@ -52,13 +53,17 @@ CPUStatePtr init_cpu(CPUBackend backend, bool cpu_opt, SceUID thread_id, std::si
     }
 
 #ifdef ENABLE_ARM_DYNCOM
+    if (backend == CPUBackend::SanityCheck) {
+        state->cpu = std::make_unique<SanityCheckCPU>(state.get(), processor_id, cpu_opt);
+        return state;
+    }
     if (backend == CPUBackend::ArmDynCom) {
         state->cpu = std::make_unique<ArmDynComCPU>(state.get(), processor_id, cpu_opt);
         return state;
     }
 #else
     if (backend == CPUBackend::ArmDynCom || backend == CPUBackend::SanityCheck) {
-        LOG_WARN("{} backend requested but not built (ENABLE_ARM_DYNCOM=OFF); using Dynarmic",
+        LOG_WARN("{} backend requested but not built (ENABLE_ARM_DYNCOM=OFF). Using Dynarmic",
             backend == CPUBackend::SanityCheck ? "SanityCheck" : "arm_dyncom");
     }
 #endif

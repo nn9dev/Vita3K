@@ -38,6 +38,7 @@ typedef std::unique_ptr<CPUInterface> CPUInterfacePtr;
 enum class CPUBackend {
     Dynarmic,
     ArmDynCom,
+    SanityCheck,
 };
 
 inline constexpr std::size_t MAX_CORE_COUNT = 150;
