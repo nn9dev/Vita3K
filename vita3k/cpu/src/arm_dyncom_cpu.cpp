@@ -147,6 +147,14 @@ void ArmDynComCPU::set_tpidruro(uint32_t val) {
     state->CP15[CP15_THREAD_URO] = val;
 }
 
+uint32_t ArmDynComCPU::get_tpidrurw() {
+    return state->CP15[CP15_THREAD_UPRW];
+}
+
+void ArmDynComCPU::set_tpidrurw(uint32_t val) {
+    state->CP15[CP15_THREAD_UPRW] = val;
+}
+
 float ArmDynComCPU::get_float_reg(uint8_t idx) {
     return std::bit_cast<float>(state->ExtReg[idx]);
 }

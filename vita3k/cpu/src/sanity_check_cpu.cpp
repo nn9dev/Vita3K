@@ -219,6 +219,7 @@ uint32_t SanityCheckCPU::get_pc() { return subject->get_pc(); }
 uint32_t SanityCheckCPU::get_lr() { return subject->get_lr(); }
 uint32_t SanityCheckCPU::get_cpsr() { return subject->get_cpsr(); }
 uint32_t SanityCheckCPU::get_tpidruro() { return subject->get_tpidruro(); }
+uint32_t SanityCheckCPU::get_tpidrurw() { return subject->get_tpidrurw(); }
 float SanityCheckCPU::get_float_reg(uint8_t idx) { return subject->get_float_reg(idx); }
 uint32_t SanityCheckCPU::get_fpscr() { return subject->get_fpscr(); }
 CPUContext SanityCheckCPU::save_context() { return subject->save_context(); }
@@ -252,6 +253,10 @@ void SanityCheckCPU::set_cpsr(uint32_t val) {
 void SanityCheckCPU::set_tpidruro(uint32_t val) {
     subject->set_tpidruro(val);
     oracle->set_tpidruro(val);
+}
+void SanityCheckCPU::set_tpidrurw(uint32_t val) {
+    subject->set_tpidrurw(val);
+    oracle->set_tpidrurw(val);
 }
 void SanityCheckCPU::set_float_reg(uint8_t idx, float val) {
     subject->set_float_reg(idx, val);
