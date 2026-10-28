@@ -19,6 +19,9 @@
 
 #include <gxm/functions.h>
 #include <renderer/vulkan/gxm_to_vulkan.h>
+#ifdef __APPLE__
+#include <renderer/vulkan/triangle_fan.h>
+#endif
 
 #include <config/state.h>
 #include <spdlog/fmt/bin_to_hex.h>
@@ -403,6 +406,28 @@ static void framebuffer_fetch_barrier(VKContext &context) {
         vk::DependencyFlagBits::eByRegion, barrier, {}, {});
 }
 
+#ifdef __APPLE__
+// Metal has no native triangle-fan support. MoltenVK supports it through portability extensions, but their
+// implementation does it via a GPU index-expansion that ends the current render pass on every fan draw.
+// On games that frequently use triangle fans, this is very costly.
+// Thus, we will expand the fan to triangles ourselves and give MVK a plain triangle list.
+// If other GPUs end up having this problem (mali/adreno?) then the guards for these should be turned into a FeatureState var
+template <typename T>
+static void expand_fan_and_bind(VKContext &context, const T *indices, size_t count,
+    vk::IndexType index_type, size_t &out_count) {
+    const std::vector<T> list = triangle_fan_to_list(indices, count);
+
+    vkutil::Buffer expanded(list.size() * sizeof(T));
+    expanded.init_buffer(vk::BufferUsageFlagBits::eIndexBuffer, vkutil::vma_mapped_alloc);
+    memcpy(expanded.mapped_data, list.data(), list.size() * sizeof(T));
+    context.state.allocator.flushAllocation(expanded.allocation, 0, VK_WHOLE_SIZE);
+
+    context.render_cmd.bindIndexBuffer(expanded.buffer, 0, index_type);
+    context.state.frame().destroy_queue.add_buffer(expanded); // attach buffer to destroy queue so it's cleaned w/ others
+    out_count = list.size();
+}
+#endif
+
 void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format,
     Ptr<void> indices, size_t count, uint32_t instance_count, MemState &mem, const Config &config) {
     const SceGxmFragmentProgram &gxm_fragment_program = *context.record.fragment_program.get(mem);
@@ -427,6 +452,11 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         ordered_indices = prepare_ordered_mask_indices(context, type, format, indices, count, mem);
         type = SCE_GXM_PRIMITIVE_TRIANGLES;
     }
+#ifdef __APPLE__
+    const bool expand_fan_for_metal = (type == SCE_GXM_PRIMITIVE_TRIANGLE_FAN && count >= 3);
+    if (expand_fan_for_metal)
+        type = SCE_GXM_PRIMITIVE_TRIANGLES;
+#endif
     if (masked_fetch)
         LOG_INFO_ONCE("Using late-tested framebuffer fetch for rejecting GXM masks; programmable blending is ordered per primitive when rasterization-order attachment access is unavailable");
 
@@ -575,6 +605,22 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         }
         context.render_cmd.bindIndexBuffer(buffer, offset, index_type);
     } else if (!ordered_indices) {
+#ifdef __APPLE__
+        // Expand a triangle fan into a triangle list and stream that instead
+        std::vector<uint16_t> fan_indices_u16;
+        std::vector<uint32_t> fan_indices_u32;
+        if (expand_fan_for_metal) {
+            if (format == SCE_GXM_INDEX_FORMAT_U16) {
+                fan_indices_u16 = triangle_fan_to_list(static_cast<const uint16_t *>(indices_ptr), count);
+                indices_ptr = fan_indices_u16.data();
+                count = fan_indices_u16.size();
+            } else {
+                fan_indices_u32 = triangle_fan_to_list(static_cast<const uint32_t *>(indices_ptr), count);
+                indices_ptr = fan_indices_u32.data();
+                count = fan_indices_u32.size();
+            }
+        }
+#endif
         const size_t index_buffer_size = index_size * count;
         context.index_stream_ring_buffer.allocate(context.prerender_cmd, index_buffer_size, indices_ptr);
         context.render_cmd.bindIndexBuffer(context.index_stream_ring_buffer.handle(), context.index_stream_ring_buffer.data_offset, index_type);
